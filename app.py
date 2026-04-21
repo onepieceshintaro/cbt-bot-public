@@ -30,7 +30,7 @@ from baseline import (
 from distortion_tips import DISTORTION_TIPS, get_tips_for
 from _user import render_account_sidebar
 
-st.set_page_config(page_title="CBT セルフヘルプ", page_icon="🧠", layout="wide")
+st.set_page_config(page_title="CBT セルフヘルプ", page_icon="💭", layout="wide")
 
 # ユーザー識別（復元キー・URL ?u= ・ローカルファイルの優先順）
 CURRENT_USER_ID = render_account_sidebar()
@@ -113,7 +113,7 @@ def _current_cfg():
 # --- サイドバー（常に左側に表示・スクロール不要） ---
 with st.sidebar:
     st.link_button(
-        "🏠 Hub に戻る",
+        "🏠 HOME に戻る",
         "https://app-public-qpy8b2ziwgdf9h2vmu5hqp.streamlit.app/",
         use_container_width=True,
     )
