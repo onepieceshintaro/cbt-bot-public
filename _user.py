@@ -1,24 +1,21 @@
-"""ユーザー識別・復元キー管理。
+"""ユーザー識別・復元キー・ニックネーム管理。
 
-優先順位：
-  1. URLクエリパラメータ ?u=<uuid>
-  2. 無ければ新規生成（?u= をURLに書いてリダイレクト）
+- ユーザーID: URL ?u= から取得、無ければ新規生成
+- ニックネーム: Supabase の user_nicknames テーブル（3アプリ共有）
 
-※ Streamlit Cloud では1コンテナを複数ユーザーが共有するため、
-  ローカルFSからの UID 復元は行わない（前のユーザーのIDが漏洩するため）。
-  永続化はブラウザのブックマーク（URLの ?u= を保存）で行う。
+※ Streamlit Cloud は1コンテナを複数ユーザーが共有するため、
+  ローカルFSは使わない（他ユーザーから見えてしまうため）。
+  ユーザーIDの永続化はブラウザのブックマーク（URLの ?u=）で行う。
 
 表示形式：F47A-C10B-58CC-4372-A567-0E02-B2C3-D479（4桁×8・大文字）
-ニックネーム：~/.note_apps_nicknames.json に user_id→名前 で保持（ローカルのみ）
 """
-import json
 import uuid
-from pathlib import Path
+from datetime import datetime
 
 import streamlit as st
+from sqlalchemy import text
 
-USER_ID_FILE = Path.home() / ".note_apps_user_id"
-NICKNAMES_FILE = Path.home() / ".note_apps_nicknames.json"
+from db import get_engine
 
 
 # ---------------- 取得・生成 ----------------
@@ -41,54 +38,47 @@ def get_or_create_user_id() -> str:
     return uid
 
 
-def switch_user(new_uid_hex: str) -> bool:
-    """復元キーで別ユーザーに切り替える。成功すれば True。"""
-    if not _is_valid_hex(new_uid_hex):
-        return False
-    _save_local(new_uid_hex)
-    try:
-        st.query_params["u"] = new_uid_hex
-    except Exception:
-        pass
-    return True
-
-
-def create_new_user() -> str:
-    """完全に新しいUUIDを生成して切り替える。"""
-    new_uid = uuid.uuid4().hex
-    _save_local(new_uid)
-    try:
-        st.query_params["u"] = new_uid
-    except Exception:
-        pass
-    return new_uid
-
-
-# ---------------- ニックネーム ----------------
+# ---------------- ニックネーム（DB保存・3アプリ共有） ----------------
 def get_nickname(uid: str) -> str:
+    if not _is_valid_hex(uid):
+        return ""
     try:
-        if NICKNAMES_FILE.exists():
-            data = json.loads(NICKNAMES_FILE.read_text(encoding="utf-8"))
-            return data.get(uid, "") or ""
+        with get_engine().connect() as conn:
+            row = conn.execute(
+                text("SELECT nickname FROM user_nicknames WHERE user_id = :uid"),
+                {"uid": uid},
+            ).fetchone()
+            return (row[0] if row else "") or ""
     except Exception:
-        pass
-    return ""
+        return ""
 
 
 def set_nickname(uid: str, nickname: str) -> None:
+    if not _is_valid_hex(uid):
+        return
+    nickname = (nickname or "").strip()
     try:
-        data = {}
-        if NICKNAMES_FILE.exists():
-            data = json.loads(NICKNAMES_FILE.read_text(encoding="utf-8"))
-        nickname = (nickname or "").strip()
-        if nickname:
-            data[uid] = nickname
-        else:
-            data.pop(uid, None)
-        NICKNAMES_FILE.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        with get_engine().begin() as conn:
+            if not nickname:
+                conn.execute(
+                    text("DELETE FROM user_nicknames WHERE user_id = :uid"),
+                    {"uid": uid},
+                )
+            else:
+                conn.execute(
+                    text("""
+                        INSERT INTO user_nicknames (user_id, nickname, updated_at)
+                        VALUES (:uid, :nick, :now)
+                        ON CONFLICT (user_id) DO UPDATE
+                        SET nickname = EXCLUDED.nickname,
+                            updated_at = EXCLUDED.updated_at
+                    """),
+                    {
+                        "uid": uid,
+                        "nick": nickname,
+                        "now": datetime.now().isoformat(),
+                    },
+                )
     except Exception:
         pass
 
@@ -116,23 +106,6 @@ def _is_valid_hex(s: str) -> bool:
     if not isinstance(s, str) or len(s) != 32:
         return False
     return all(c in "0123456789abcdef" for c in s.lower())
-
-
-# ---------------- 永続化 ----------------
-def _save_local(uid: str) -> None:
-    try:
-        USER_ID_FILE.write_text(uid.strip(), encoding="utf-8")
-    except Exception:
-        pass
-
-
-def _load_local() -> str | None:
-    try:
-        if USER_ID_FILE.exists():
-            return USER_ID_FILE.read_text(encoding="utf-8").strip()
-    except Exception:
-        pass
-    return None
 
 
 def _ensure_query_param(uid: str) -> None:
@@ -164,7 +137,7 @@ def render_account_sidebar() -> str:
     with st.sidebar:
         with st.expander(f"👤 {display_label}", expanded=False):
             # --- ニックネーム ---
-            st.caption("名前（任意・この端末にだけ保存）")
+            st.caption("名前（任意・3アプリで共有）")
             new_nick = st.text_input(
                 "名前",
                 value=current_nick,

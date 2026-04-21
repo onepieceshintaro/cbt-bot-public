@@ -107,3 +107,12 @@ def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS idx_cbt_risk_user "
             "ON cbt_risk_scores(user_id, created_at)"
         ))
+
+        # user_nicknames（3アプリ共通・プレフィックス無し）
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS user_nicknames (
+                user_id TEXT PRIMARY KEY,
+                nickname TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """))
