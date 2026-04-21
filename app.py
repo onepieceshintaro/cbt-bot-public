@@ -461,15 +461,12 @@ elif view == "📊 傾向を見る":
     if df.empty:
         st.info("まだ記録がありません。左側の「💬 対話」から始めてください。")
     else:
-        # event_datetime を使う（なければ created_at で代替）
-        df["event_datetime"] = pd.to_datetime(
-            df["event_datetime"].fillna(df["created_at"]),
-            format="mixed",
-            errors="coerce",
-        )
-        df["created_at"] = pd.to_datetime(
-            df["created_at"], format="mixed", errors="coerce"
-        )
+        # 列ごとに個別に datetime 変換してから fillna
+        _ev = pd.to_datetime(df["event_datetime"], errors="coerce")
+        _cr = pd.to_datetime(df["created_at"], errors="coerce")
+        df["event_datetime"] = _ev.fillna(_cr)
+        df["created_at"] = _cr
+        df = df.dropna(subset=["event_datetime"])
         df["hour"] = df["event_datetime"].dt.hour
         df["dow"] = df["event_datetime"].dt.day_name()
 

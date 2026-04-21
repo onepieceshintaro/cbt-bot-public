@@ -65,11 +65,13 @@ def filter_week(df: pd.DataFrame, week_start: date, week_end: date) -> pd.DataFr
     if df.empty:
         return df
     d = df.copy()
-    d["event_datetime"] = pd.to_datetime(
-        d["event_datetime"].fillna(d.get("created_at")),
-        format="mixed",
-        errors="coerce",
-    )
+    # 列ごとに個別に datetime 変換してから fillna（mixed 型の strptime エラー回避）
+    ev = pd.to_datetime(d["event_datetime"], errors="coerce")
+    cr = pd.to_datetime(d.get("created_at"), errors="coerce") if "created_at" in d.columns else None
+    d["event_datetime"] = ev.fillna(cr) if cr is not None else ev
+    d = d.dropna(subset=["event_datetime"])
+    if d.empty:
+        return d
     mask = (d["event_datetime"].dt.date >= week_start) & \
            (d["event_datetime"].dt.date <= week_end)
     return d[mask].sort_values("event_datetime").reset_index(drop=True)
