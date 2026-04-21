@@ -1,0 +1,28 @@
+# Secrets（絶対にコミットしない）
+.streamlit/secrets.toml
+.env
+*.env
+# エディタが作る自動バックアップ・スワップも除外（パスワード漏洩防止）
+*.bak
+*~
+*.swp
+*.tmp
+
+# ローカルDB（フォールバック用）
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# OS / エディタ
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
