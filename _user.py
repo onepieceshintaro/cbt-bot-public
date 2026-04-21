@@ -182,52 +182,6 @@ def render_account_sidebar() -> str:
 
             # ブックマーク案内
             st.info(
-                "💡 **このページをブックマーク**すれば、"
-                "次回は開くだけで**自動ログイン**できます。"
+                "💡 キーの切替や新規作成は **HOME ページ** から行えます。"
             )
-
-            st.markdown("---")
-
-            # --- キー切替 ---
-            st.caption("別のキーで読み込む")
-            new_key = st.text_input(
-                "復元キー",
-                key=f"restore_key_input_{uid[:6]}",
-                label_visibility="collapsed",
-                placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX",
-            )
-            if st.button("このキーで読み込む", key=f"restore_key_btn_{uid[:6]}"):
-                parsed = parse_restore_key(new_key)
-                if parsed:
-                    if switch_user(parsed):
-                        st.success("切り替えました。再読み込みします。")
-                        st.rerun()
-                else:
-                    st.error("キーの形式が正しくありません（32文字のhex）")
-
-            # --- 新規アカウント作成 ---
-            confirm_key = f"confirm_new_user_{uid[:6]}"
-            if st.session_state.get(confirm_key):
-                st.warning(
-                    "⚠️ 新しいアカウントに切り替えると、**今の復元キーが変わります**。"
-                    "上の復元キーをスクショ等で保管してから進めてください"
-                    "（あとで同じキーを入れれば戻れます）。"
-                )
-                c1, c2 = st.columns(2)
-                with c1:
-                    if st.button("✅ 作成する", key=f"yes_new_{uid[:6]}",
-                                 use_container_width=True):
-                        create_new_user()
-                        st.session_state[confirm_key] = False
-                        st.rerun()
-                with c2:
-                    if st.button("キャンセル", key=f"cancel_new_{uid[:6]}",
-                                 use_container_width=True):
-                        st.session_state[confirm_key] = False
-                        st.rerun()
-            else:
-                if st.button("➕ 新しいアカウントを作る",
-                             key=f"new_user_btn_{uid[:6]}"):
-                    st.session_state[confirm_key] = True
-                    st.rerun()
     return uid
