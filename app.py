@@ -112,6 +112,12 @@ def _current_cfg():
 
 # --- サイドバー（常に左側に表示・スクロール不要） ---
 with st.sidebar:
+    st.link_button(
+        "🏠 Hub に戻る",
+        "https://app-public-qpy8b2ziwgdf9h2vmu5hqp.streamlit.app/",
+        use_container_width=True,
+    )
+    st.divider()
     # ビュー切替
     view = st.radio(
         "表示",
