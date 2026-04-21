@@ -244,7 +244,7 @@ with st.sidebar:
 
 # --- メインエリア（サイドバーの選択で切替） ---
 if view == "💬 対話":
-    st.title("思考記録")
+    st.markdown("### 思考記録")
     st.caption("ゆっくり、あなたのペースで。書けることだけで大丈夫です。")
 
     # --- いつの出来事か（コンパクトな選択欄） ---
@@ -455,7 +455,7 @@ if view == "💬 対話":
         st.info("左側の「新しいセッションを始める」ボタンで続けられます。")
 
 elif view == "📊 傾向を見る":
-    st.title("あなたの傾向")
+    st.markdown("### あなたの傾向")
     df = load_records()
 
     if df.empty:
@@ -721,7 +721,7 @@ elif view == "📊 傾向を見る":
             st.dataframe(display_df, use_container_width=True)
 
 elif view == "📝 週次レポート":
-    st.title("週次レポート")
+    st.markdown("### 週次レポート")
     st.caption("1週間の思考記録を Claude に要約してもらいます。冷静に振り返る時間のお供に。")
 
     df_all = load_records()
