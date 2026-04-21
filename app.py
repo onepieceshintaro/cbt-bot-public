@@ -463,9 +463,13 @@ elif view == "📊 傾向を見る":
     else:
         # event_datetime を使う（なければ created_at で代替）
         df["event_datetime"] = pd.to_datetime(
-            df["event_datetime"].fillna(df["created_at"])
+            df["event_datetime"].fillna(df["created_at"]),
+            format="mixed",
+            errors="coerce",
         )
-        df["created_at"] = pd.to_datetime(df["created_at"])
+        df["created_at"] = pd.to_datetime(
+            df["created_at"], format="mixed", errors="coerce"
+        )
         df["hour"] = df["event_datetime"].dt.hour
         df["dow"] = df["event_datetime"].dt.day_name()
 

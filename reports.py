@@ -66,7 +66,9 @@ def filter_week(df: pd.DataFrame, week_start: date, week_end: date) -> pd.DataFr
         return df
     d = df.copy()
     d["event_datetime"] = pd.to_datetime(
-        d["event_datetime"].fillna(d.get("created_at"))
+        d["event_datetime"].fillna(d.get("created_at")),
+        format="mixed",
+        errors="coerce",
     )
     mask = (d["event_datetime"].dt.date >= week_start) & \
            (d["event_datetime"].dt.date <= week_end)

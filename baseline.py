@@ -24,7 +24,9 @@ def _prepare_df(df: pd.DataFrame) -> pd.DataFrame:
         return df
     d = df.copy()
     d["event_datetime"] = pd.to_datetime(
-        d["event_datetime"].fillna(d.get("created_at"))
+        d["event_datetime"].fillna(d.get("created_at")),
+        format="mixed",
+        errors="coerce",
     )
     return d.sort_values("event_datetime").reset_index(drop=True)
 
