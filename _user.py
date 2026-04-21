@@ -2,8 +2,11 @@
 
 優先順位：
   1. URLクエリパラメータ ?u=<uuid>
-  2. ホームディレクトリの ~/.note_apps_user_id（全アプリ共通）
-  3. 新規生成
+  2. 無ければ新規生成（?u= をURLに書いてリダイレクト）
+
+※ Streamlit Cloud では1コンテナを複数ユーザーが共有するため、
+  ローカルFSからの UID 復元は行わない（前のユーザーのIDが漏洩するため）。
+  永続化はブラウザのブックマーク（URLの ?u= を保存）で行う。
 
 表示形式：F47A-C10B-58CC-4372-A567-0E02-B2C3-D479（4桁×8・大文字）
 ニックネーム：~/.note_apps_nicknames.json に user_id→名前 で保持（ローカルのみ）
@@ -20,22 +23,20 @@ NICKNAMES_FILE = Path.home() / ".note_apps_nicknames.json"
 
 # ---------------- 取得・生成 ----------------
 def get_or_create_user_id() -> str:
-    """現在のユーザーIDを返す。なければ生成して保存する。"""
+    """現在のユーザーIDを返す。なければ生成する。
+
+    注意：ローカルFSからの復元は行わない（Cloud上で他ユーザーのIDが
+    漏洩するため）。永続化はURL?u=パラメータのみ。
+    """
     try:
         u = st.query_params.get("u")
     except Exception:
         u = None
     if u and _is_valid_hex(u):
-        _save_local(u)
         return u
 
-    uid = _load_local()
-    if uid and _is_valid_hex(uid):
-        _ensure_query_param(uid)
-        return uid
-
+    # ?u= が無い or 無効 → 新規UUIDを発行してURLに書き込む
     uid = uuid.uuid4().hex
-    _save_local(uid)
     _ensure_query_param(uid)
     return uid
 
