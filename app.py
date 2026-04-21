@@ -30,7 +30,7 @@ from baseline import (
 from distortion_tips import DISTORTION_TIPS, get_tips_for
 from _user import render_account_sidebar
 
-st.set_page_config(page_title="CBT セルフヘルプ", page_icon="💭", layout="wide")
+st.set_page_config(page_title="思考の整理ノート", page_icon="💭", layout="wide")
 
 # ユーザー識別（復元キー・URL ?u= ・ローカルファイルの優先順）
 CURRENT_USER_ID = render_account_sidebar()
