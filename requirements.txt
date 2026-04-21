@@ -2,5 +2,6 @@ anthropic>=0.40.0
 streamlit>=1.38
 python-dotenv>=1.0
 pandas>=2.1
+plotly>=5.20
 SQLAlchemy>=2.0
 psycopg2-binary>=2.9
