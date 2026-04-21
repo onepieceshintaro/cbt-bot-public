@@ -119,42 +119,14 @@ def _ensure_query_param(uid: str) -> None:
 
 # ---------------- サイドバーUI ----------------
 def render_account_sidebar() -> str:
-    """サイドバーにアカウント情報を描画し、user_id を返す。"""
+    """サイドバーに現在のユーザー表示だけ出し、user_id を返す。
+
+    編集・切替UIは HOME ページに集約。
+    """
     uid = get_or_create_user_id()
     current_nick = get_nickname(uid)
     display_label = current_nick if current_nick else "（名前未設定）"
 
-    # サイドバー幅を少し広げる＋アカウントパネル内の余白を詰める
-    st.markdown("""
-    <style>
-    section[data-testid="stSidebar"] {
-        min-width: 320px !important;
-        width: 320px !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
     with st.sidebar:
-        with st.expander(f"👤 {display_label}", expanded=False):
-            # --- ニックネーム ---
-            st.caption("名前（任意・3アプリで共有）")
-            new_nick = st.text_input(
-                "名前",
-                value=current_nick,
-                label_visibility="collapsed",
-                placeholder="例：しんたろう",
-                key=f"nick_input_{uid[:6]}",
-            )
-            if new_nick != current_nick:
-                set_nickname(uid, new_nick)
-                st.rerun()
-
-            # --- 復元キー ---
-            st.caption("あなたの復元キー")
-            st.code(format_restore_key(uid), language=None)
-
-            # ブックマーク案内
-            st.info(
-                "💡 キーの切替や新規作成は **HOME ページ** から行えます。"
-            )
+        st.markdown(f"👤 **{display_label}**")
     return uid
