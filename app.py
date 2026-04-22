@@ -626,6 +626,69 @@ elif view == "📊 傾向を見る":
             else:
                 st.info("歪みデータがまだありません。")
 
+        # 認知の歪みの時系列（どの歪みが時期ごとにどう変化しているか）
+        _d_rows = []
+        for _, _r in df.iterrows():
+            try:
+                _names = json.loads(_r["distortions"] or "[]")
+            except Exception:
+                continue
+            if not _names:
+                continue
+            for _n in _names:
+                _d_rows.append({
+                    "event_datetime": _r["event_datetime"],
+                    "distortion": _n,
+                })
+
+        if len(_d_rows) >= 5:
+            st.subheader("🗓 認知の歪みの時系列")
+            st.caption(
+                "週ごとにどの歪みがどれくらい出ているか。"
+                "「最近は違うパターンが増えてきた」などの気づきに使えます。"
+            )
+
+            _dd = pd.DataFrame(_d_rows)
+            _dd["week"] = _dd["event_datetime"].dt.to_period("W-MON").dt.start_time
+
+            # 上位パターンだけ色付きで表示（それ以外はノイズになる）
+            _top_names = _dd["distortion"].value_counts().head(6).index.tolist()
+            _dd_top = _dd[_dd["distortion"].isin(_top_names)]
+
+            weekly = (
+                _dd_top.groupby(["week", "distortion"])
+                .size().reset_index(name="count")
+            )
+            n_weeks = weekly["week"].nunique()
+
+            # 週が少ないときは bar、多いときは area の方が見やすい
+            if n_weeks <= 8:
+                fig_ts = px.bar(
+                    weekly, x="week", y="count", color="distortion",
+                    labels={"week": "週", "count": "出現回数",
+                            "distortion": "歪み"},
+                    category_orders={"distortion": _top_names},
+                )
+            else:
+                fig_ts = px.area(
+                    weekly, x="week", y="count", color="distortion",
+                    labels={"week": "週", "count": "出現回数",
+                            "distortion": "歪み"},
+                    category_orders={"distortion": _top_names},
+                )
+            fig_ts.update_layout(
+                height=360, margin=dict(l=10, r=10, t=10, b=10),
+                legend=dict(orientation="h", y=-0.25),
+                hovermode="x unified",
+            )
+            st.plotly_chart(fig_ts, use_container_width=True)
+
+            _hidden = _dd["distortion"].nunique() - len(_top_names)
+            _note = f"出現回数が多い上位{len(_top_names)}パターンのみ表示"
+            if _hidden > 0:
+                _note += f"（残り{_hidden}パターンは省略）"
+            st.caption(_note + "。")
+
         # 時間帯・曜日のヒートマップ（3件以上で表示）
         if len(df) >= 3:
             st.subheader("いつ気持ちが揺れやすい？（曜日×時間帯）")
