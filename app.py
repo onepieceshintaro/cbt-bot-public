@@ -154,10 +154,11 @@ with st.sidebar:
         with st.expander("💭 どちらを選ぶか迷ったら", expanded=False):
             for _k in _mode_keys:
                 _cfg = MODE_CONFIGS[_k]
-                st.markdown(f"##### {_cfg['display_name']}")
+                st.markdown(f"#### {_cfg['display_name']}")
                 _wtu = _cfg.get("when_to_use")
                 if _wtu:
-                    st.markdown(_wtu)
+                    # 本文は caption で小さめ表示 → タイトルとの階層を出す
+                    st.caption(_wtu)
                 st.write("")
             st.caption(
                 "どちらも「考え方を変える」ためではなく、"
