@@ -377,7 +377,7 @@ MODE_CONFIGS = {
         "notes": {},  # 既存モードは注釈なし
     },
     MODE_SEVEN_COLUMNS: {
-        "display_name": "📋 事実と反証で整理する（7コラム法）",
+        "display_name": "📋 事実と反証で整理する",
         "description": "事実・反証・バランス思考で、憶測と事実を分ける方法",
         "when_to_use": (
             "**こんな時に**：「頭ではそう思うけど、本当にそうかな？」"

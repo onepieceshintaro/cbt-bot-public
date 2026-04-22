@@ -160,7 +160,7 @@ with st.sidebar:
                     # 本文は caption で小さめ表示 → タイトルとの階層を出す
                     st.caption(_wtu)
                 st.write("")
-            st.caption(
+            st.markdown(
                 "どちらも「考え方を変える」ためではなく、"
                 "**自分の考えを少し外側から眺めてみる**ための道具です。"
             )
