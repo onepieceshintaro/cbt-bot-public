@@ -364,6 +364,12 @@ MODE_CONFIGS = {
     MODE_DISTORTION: {
         "display_name": "🔍 認知の歪みを見つける",
         "description": "歪みパターンに気づいて、新しい見方を探す方法",
+        "when_to_use": (
+            "**こんな時に**：「いつも同じパターンで落ち込んでいる気がする」"
+            "「自分の考え方のクセに気づきたい」\n\n"
+            "**進め方**：出来事 → 自動思考 → 歪みのパターンを一緒に探す → "
+            "別の見方を考える。**名前を付けて気づく**アプローチ。"
+        ),
         "system_prompt": SYSTEM_PROMPT,
         "order": PHASE_ORDER,
         "labels": PHASE_LABELS,
@@ -373,6 +379,12 @@ MODE_CONFIGS = {
     MODE_SEVEN_COLUMNS: {
         "display_name": "📋 事実と反証で整理する（7コラム法）",
         "description": "事実・反証・バランス思考で、憶測と事実を分ける方法",
+        "when_to_use": (
+            "**こんな時に**：「頭ではそう思うけど、本当にそうかな？」"
+            "「根拠が曖昧なまま苦しくなっている」\n\n"
+            "**進め方**：自動思考に対して **根拠（事実）** と **反証** を並べて、"
+            "**バランス思考**を組み立てる。**事実で検証する**アプローチ。"
+        ),
         "system_prompt": SYSTEM_PROMPT_SEVEN_COLUMNS,
         "order": PHASE_ORDER_SEVEN,
         "labels": PHASE_LABELS_SEVEN,

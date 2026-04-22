@@ -149,7 +149,20 @@ with st.sidebar:
             key="mode_radio",
         )
         st.session_state.mode = _mode_keys[_mode_display.index(_selected_display)]
-        st.caption(MODE_CONFIGS[st.session_state.mode]["description"])
+
+        # 使い分けのイメージ（両モードを並べて比較できるように）
+        with st.expander("💭 どちらを選ぶか迷ったら", expanded=False):
+            for _k in _mode_keys:
+                _cfg = MODE_CONFIGS[_k]
+                st.markdown(f"##### {_cfg['display_name']}")
+                _wtu = _cfg.get("when_to_use")
+                if _wtu:
+                    st.markdown(_wtu)
+                st.write("")
+            st.caption(
+                "どちらも「考え方を変える」ためではなく、"
+                "**自分の考えを少し外側から眺めてみる**ための道具です。"
+            )
     else:
         st.caption(
             f"現在：**{MODE_CONFIGS[st.session_state.mode]['display_name']}**"
