@@ -474,7 +474,26 @@ if view == "💬 対話":
                     st.session_state.show_last_tips = False
                     st.rerun()
 
-        st.info("左側の「新しいセッションを始める」ボタンで続けられます。")
+        # スマホでもサイドバーを開かずに次の行動が取れるよう、
+        # メインエリアにも HOME / 新規セッション のボタンを置く
+        st.divider()
+        _done_hub_url = "https://app-public-qpy8b2ziwgdf9h2vmu5hqp.streamlit.app/"
+        if CURRENT_USER_ID:
+            _done_hub_url += f"?u={CURRENT_USER_ID}"
+        _col_done_1, _col_done_2 = st.columns(2)
+        with _col_done_1:
+            st.link_button(
+                "🏠 HOMEに戻る",
+                _done_hub_url,
+                use_container_width=True,
+            )
+        with _col_done_2:
+            st.button(
+                "🆕 新しいセッション",
+                use_container_width=True,
+                on_click=reset_session,
+                key="btn_new_session_inline",
+            )
 
 elif view == "📊 傾向を見る":
     st.markdown("### あなたの傾向")
