@@ -124,9 +124,17 @@ def top_distortions(
     total_records = 0
     for s in recent["distortions"].dropna():
         try:
-            names = json.loads(s)
+            items = json.loads(s)
         except Exception:
             continue
+        if not items:
+            continue
+        # 旧形式（list[str]）と新形式（list[dict{name, evidence}]）の両対応
+        names = [
+            it["name"] if isinstance(it, dict) else it
+            for it in items
+            if (isinstance(it, dict) and it.get("name")) or isinstance(it, str)
+        ]
         if not names:
             continue
         total_records += 1

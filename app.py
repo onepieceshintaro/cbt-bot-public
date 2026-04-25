@@ -12,7 +12,7 @@ from cbt_engine import (
     infer_distortions_from_record, suggest_balanced_thoughts,
 )
 from storage import (
-    init_db, save_record, load_records, update_distortions,
+    init_db, save_record, load_records, update_distortions, update_record,
     save_weekly_report, load_weekly_report, load_all_weekly_reports,
     save_risk_score, load_risk_scores,
 )
@@ -75,6 +75,33 @@ def progress_ratio(phase: str | None, order: list[str]) -> float:
     if phase not in order:
         return 0.0
     return (order.index(phase) + 1) / len(order)
+
+
+def normalize_distortions(raw) -> list[dict]:
+    """記録の distortions を、旧形式（list[str]）でも新形式（list[dict]）でも
+    [{"name": str, "evidence": str}] に揃える。"""
+    if not raw:
+        return []
+    items = raw
+    if isinstance(raw, str):
+        try:
+            items = json.loads(raw or "[]")
+        except Exception:
+            return []
+    out: list[dict] = []
+    for it in items or []:
+        if isinstance(it, str):
+            out.append({"name": it, "evidence": ""})
+        elif isinstance(it, dict) and it.get("name"):
+            out.append({
+                "name": str(it["name"]),
+                "evidence": str(it.get("evidence") or ""),
+            })
+    return out
+
+
+def distortion_names(raw) -> list[str]:
+    return [d["name"] for d in normalize_distortions(raw)]
 
 
 if "messages" not in st.session_state:
@@ -255,6 +282,23 @@ with st.sidebar:
             pass  # ベースライン失敗はサイレントに
 
     st.divider()
+    with st.expander("📚 認知の歪みパターン辞典", expanded=False):
+        st.caption(
+            "Burns の古典10パターンに準拠（結論の飛躍は2サブタイプに分けて表示）。"
+            "気になるものだけ開いて読めば大丈夫です。"
+        )
+        # 互換用の「結論の飛躍」（無印）は辞書UIには出さない
+        for _name, _tip in DISTORTION_TIPS.items():
+            if _name == "結論の飛躍":
+                continue
+            with st.container(border=True):
+                st.markdown(f"**{_name}**")
+                st.caption(_tip["description"])
+                if _tip.get("strength"):
+                    st.markdown(f"💪 **良い面**：{_tip['strength']}")
+                st.markdown(f"⚠ **ハマりやすいパターン**：{_tip['trap']}")
+
+    st.divider()
     st.caption("※ このBotは医療行為ではありません")
     with st.expander("辛いときの相談窓口"):
         st.markdown("""
@@ -425,10 +469,13 @@ if view == "💬 対話":
                                 except Exception:
                                     pass  # 推定失敗はサイレントに
 
-                            # 対話後のヒント表示用に保存
+                            # 対話後のヒント表示用に保存（dict形式に正規化）
+                            _normalized = normalize_distortions(_captured_distortions)
+                            # 辞書に存在するパターンのみヒント対象に
                             st.session_state.last_distortions = [
-                                d for d in _captured_distortions
-                                if d in DISTORTION_TIPS
+                                d for d in _normalized
+                                if d["name"] in DISTORTION_TIPS
+                                or d["name"].startswith("結論の飛躍")
                             ]
                             st.session_state.show_last_tips = False
                         except Exception as e:
@@ -441,10 +488,19 @@ if view == "💬 対話":
         # 対話後の対処ヒント（オプトイン）
         if st.session_state.last_distortions:
             st.divider()
-            names_str = "・".join(st.session_state.last_distortions)
+            _last = st.session_state.last_distortions  # list[dict]
+            names_str = "・".join(d["name"] for d in _last)
             st.caption(
                 f"今回出ていたパターン：**{names_str}**"
             )
+            # 各歪みについて、なぜそう判断したかの根拠（推定があれば）
+            _has_evidence = any(d.get("evidence") for d in _last)
+            if _has_evidence:
+                with st.expander("💭 こう判断した理由（参考まで）", expanded=False):
+                    for d in _last:
+                        if d.get("evidence"):
+                            st.markdown(f"**{d['name']}**")
+                            st.caption(d["evidence"])
             if not st.session_state.show_last_tips:
                 if st.button(
                     "💡 このパターンへの対処のヒントを見る",
@@ -458,10 +514,13 @@ if view == "💬 対話":
                 )
             else:
                 st.markdown("**🛠 対処のヒント（あくまで参考まで）**")
-                for name, tip in get_tips_for(st.session_state.last_distortions):
+                _names_for_tip = [d["name"] for d in _last]
+                for name, tip in get_tips_for(_names_for_tip):
                     with st.container(border=True):
                         st.markdown(f"**💡 {name}**")
                         st.caption(f"特徴：{tip['description']}")
+                        if tip.get("strength"):
+                            st.markdown(f"💪 **良い面**：{tip['strength']}")
                         st.caption(f"ハマりやすいパターン：{tip['trap']}")
                         st.markdown("**試せそうな一歩**")
                         for a in tip["actions"]:
@@ -612,12 +671,15 @@ elif view == "📊 傾向を見る":
                 "以下はあくまで一般的な対処例です。"
                 "ピンと来るものがあれば試してみる、くらいの距離感で。"
             )
+            from distortion_tips import get_tip as _get_tip
             for d in top_d:
-                tip = DISTORTION_TIPS.get(d["name"])
+                tip = _get_tip(d["name"])
                 if not tip:
                     continue
                 with st.expander(f"💡 {d['name']} への対処を見る"):
                     st.markdown(f"**特徴**：{tip['description']}")
+                    if tip.get("strength"):
+                        st.markdown(f"💪 **良い面**：{tip['strength']}")
                     st.markdown(f"**ハマりやすいパターン**：{tip['trap']}")
                     st.markdown("**試せそうな一歩**")
                     for a in tip["actions"]:
@@ -645,10 +707,7 @@ elif view == "📊 傾向を見る":
             st.subheader("認知の歪みの出現頻度")
             all_distortions = []
             for s in df["distortions"].dropna():
-                try:
-                    all_distortions.extend(json.loads(s))
-                except Exception:
-                    pass
+                all_distortions.extend(distortion_names(s))
             counts = Counter(all_distortions)
             if counts:
                 dist_df = pd.DataFrame(
@@ -662,10 +721,7 @@ elif view == "📊 傾向を見る":
         # 認知の歪みの時系列（どの歪みが時期ごとにどう変化しているか）
         _d_rows = []
         for _, _r in df.iterrows():
-            try:
-                _names = json.loads(_r["distortions"] or "[]")
-            except Exception:
-                continue
+            _names = distortion_names(_r.get("distortions"))
             if not _names:
                 continue
             for _n in _names:
@@ -762,10 +818,19 @@ elif view == "📊 傾向を見る":
         # 新しい順に表示
         recent = df.sort_values("event_datetime", ascending=False).head(10)
 
+        # 編集モード状態（記録ID → bool）
+        if "edit_record_id" not in st.session_state:
+            st.session_state.edit_record_id = None
+
         for _, row in recent.iterrows():
             dt_str = pd.to_datetime(row["event_datetime"]).strftime("%Y-%m-%d %H:%M")
             intensity_change = f"{row['intensity_before']} → {row['intensity_after']}"
             title = f"📝 {dt_str}｜{row['emotion_name']}（{intensity_change}）"
+            _row_id = int(row["id"]) if "id" in row.index and pd.notna(row["id"]) else None
+            _is_editing = (
+                _row_id is not None
+                and st.session_state.edit_record_id == _row_id
+            )
 
             with st.expander(title):
                 _mode_of_row = row.get("mode") if "mode" in row.index else None
@@ -775,46 +840,188 @@ elif view == "📊 傾向を見る":
                     ).get("display_name", _mode_of_row)
                     st.caption(f"進め方：{_mode_label}")
 
-                st.markdown(f"**🌱 状況**")
-                st.write(row["situation"] or "（未記録）")
+                if _is_editing and _row_id is not None:
+                    # ===== 編集フォーム =====
+                    st.caption("✏️ 編集モード（保存するまで変更は反映されません）")
+                    _form_key = f"edit_form_{_row_id}"
+                    with st.form(_form_key):
+                        _new_situation = st.text_area(
+                            "🌱 状況",
+                            value=row.get("situation") or "",
+                            key=f"ed_sit_{_row_id}",
+                        )
+                        _new_thought = st.text_area(
+                            "💭 自動思考",
+                            value=row.get("automatic_thought") or "",
+                            key=f"ed_thought_{_row_id}",
+                        )
+                        _c_em1, _c_em2, _c_em3 = st.columns([2, 1, 1])
+                        with _c_em1:
+                            _new_emotion = st.text_input(
+                                "感情",
+                                value=row.get("emotion_name") or "",
+                                key=f"ed_em_{_row_id}",
+                            )
+                        with _c_em2:
+                            _new_int_before = st.number_input(
+                                "強度（前）",
+                                min_value=0, max_value=100,
+                                value=int(row["intensity_before"]) if pd.notna(row.get("intensity_before")) else 0,
+                                step=5,
+                                key=f"ed_intb_{_row_id}",
+                            )
+                        with _c_em3:
+                            _new_int_after = st.number_input(
+                                "強度（後）",
+                                min_value=0, max_value=100,
+                                value=int(row["intensity_after"]) if pd.notna(row.get("intensity_after")) else 0,
+                                step=5,
+                                key=f"ed_inta_{_row_id}",
+                            )
 
-                st.markdown(f"**💭 その時の自動思考**")
-                st.write(row["automatic_thought"] or "（未記録）")
+                        # 7コラム法の根拠／反証は値があるときだけ編集UIに出す
+                        _has_seven = bool(row.get("evidence_for")) or bool(row.get("evidence_against")) or bool(row.get("balanced_thought"))
+                        if _has_seven:
+                            _new_ev_for = st.text_area(
+                                "📌 根拠（事実）",
+                                value=row.get("evidence_for") or "",
+                                key=f"ed_evf_{_row_id}",
+                            )
+                            _new_ev_against = st.text_area(
+                                "🔄 反証",
+                                value=row.get("evidence_against") or "",
+                                key=f"ed_eva_{_row_id}",
+                            )
+                            _new_balanced = st.text_area(
+                                "✨ バランス思考",
+                                value=row.get("balanced_thought") or "",
+                                key=f"ed_bal_{_row_id}",
+                            )
+                            _new_adaptive = row.get("adaptive_thought") or ""
+                        else:
+                            _new_ev_for = row.get("evidence_for") or None
+                            _new_ev_against = row.get("evidence_against") or None
+                            _new_balanced = row.get("balanced_thought") or None
+                            _new_adaptive = st.text_area(
+                                "✨ 新しい見方（適応的思考）",
+                                value=row.get("adaptive_thought") or "",
+                                key=f"ed_adap_{_row_id}",
+                            )
 
-                # 7コラム法の場合は、根拠と反証を表示
-                _ev_for = row.get("evidence_for") if "evidence_for" in row.index else None
-                _ev_against = row.get("evidence_against") if "evidence_against" in row.index else None
-                if _ev_for:
-                    st.markdown("**📌 根拠（事実）**")
-                    st.write(_ev_for)
-                if _ev_against:
-                    st.markdown("**🔄 反証**")
-                    st.write(_ev_against)
+                        # 歪みは多選択（既存の根拠は名前ごとに保持してマージ）
+                        _existing_dists = normalize_distortions(row.get("distortions"))
+                        _existing_evidence_map = {
+                            d["name"]: d.get("evidence", "")
+                            for d in _existing_dists
+                        }
+                        _all_pattern_names = [
+                            n for n in DISTORTION_TIPS.keys()
+                            if n != "結論の飛躍"  # 互換用は選択肢から除外
+                        ]
+                        # 既存値のうち、選択肢に無いもの（旧データ）も残せるようにする
+                        for _n in _existing_evidence_map:
+                            if _n not in _all_pattern_names:
+                                _all_pattern_names.append(_n)
+                        _new_dist_names = st.multiselect(
+                            "🔍 認知の歪み",
+                            options=_all_pattern_names,
+                            default=[d["name"] for d in _existing_dists],
+                            key=f"ed_dist_{_row_id}",
+                        )
 
-                # 歪みをバッジ風に
-                try:
-                    distortions = json.loads(row["distortions"] or "[]")
-                except Exception:
-                    distortions = []
-                if distortions:
-                    st.markdown("**🔍 気づいた認知の歪み**")
-                    badges = "　".join([f"`{d}`" for d in distortions])
-                    st.markdown(badges)
+                        _c_btn1, _c_btn2 = st.columns(2)
+                        with _c_btn1:
+                            _saved = st.form_submit_button(
+                                "💾 保存", use_container_width=True, type="primary",
+                            )
+                        with _c_btn2:
+                            _cancel = st.form_submit_button(
+                                "キャンセル", use_container_width=True,
+                            )
 
-                # バランス思考があればそちらを優先表示、なければ adaptive_thought
-                _balanced = row.get("balanced_thought") if "balanced_thought" in row.index else None
-                if _balanced:
-                    st.markdown(f"**✨ バランス思考**")
-                    st.info(_balanced)
+                    if _cancel:
+                        st.session_state.edit_record_id = None
+                        st.rerun()
+                    if _saved:
+                        # 既存の evidence をできるだけ維持。新規追加されたものは空
+                        _new_dists = [
+                            {"name": n, "evidence": _existing_evidence_map.get(n, "")}
+                            for n in _new_dist_names
+                        ]
+                        _fields = {
+                            "situation": _new_situation,
+                            "automatic_thought": _new_thought,
+                            "emotion_name": _new_emotion,
+                            "intensity_before": int(_new_int_before),
+                            "intensity_after": int(_new_int_after),
+                            "evidence_for": _new_ev_for,
+                            "evidence_against": _new_ev_against,
+                            "balanced_thought": _new_balanced,
+                            "adaptive_thought": _new_adaptive,
+                            "distortions": _new_dists,
+                        }
+                        try:
+                            update_record(_row_id, _fields)
+                            st.session_state.edit_record_id = None
+                            st.success("更新しました。")
+                            st.rerun()
+                        except Exception as _e:
+                            st.error(f"更新に失敗しました：{_e}")
+
                 else:
-                    st.markdown(f"**✨ 新しい見方（適応的思考）**")
-                    st.info(row["adaptive_thought"] or "（未記録）")
+                    # ===== 通常表示 =====
+                    st.markdown(f"**🌱 状況**")
+                    st.write(row["situation"] or "（未記録）")
 
-                st.markdown(
-                    f"**感情の変化**：{row['emotion_name']}　"
-                    f"{row['intensity_before']} → {row['intensity_after']}　"
-                    f"（{row['intensity_before'] - row['intensity_after']:+d} 変化）"
-                )
+                    st.markdown(f"**💭 その時の自動思考**")
+                    st.write(row["automatic_thought"] or "（未記録）")
+
+                    # 7コラム法の場合は、根拠と反証を表示
+                    _ev_for = row.get("evidence_for") if "evidence_for" in row.index else None
+                    _ev_against = row.get("evidence_against") if "evidence_against" in row.index else None
+                    if _ev_for:
+                        st.markdown("**📌 根拠（事実）**")
+                        st.write(_ev_for)
+                    if _ev_against:
+                        st.markdown("**🔄 反証**")
+                        st.write(_ev_against)
+
+                    # 歪みをバッジ風に＋根拠（あれば）
+                    _dists = normalize_distortions(row.get("distortions"))
+                    if _dists:
+                        st.markdown("**🔍 気づいた認知の歪み**")
+                        badges = "　".join([f"`{d['name']}`" for d in _dists])
+                        st.markdown(badges)
+                        _has_ev = any(d.get("evidence") for d in _dists)
+                        if _has_ev:
+                            with st.expander("💭 こう判断した理由", expanded=False):
+                                for d in _dists:
+                                    if d.get("evidence"):
+                                        st.markdown(f"**{d['name']}**")
+                                        st.caption(d["evidence"])
+
+                    # バランス思考があればそちらを優先表示、なければ adaptive_thought
+                    _balanced = row.get("balanced_thought") if "balanced_thought" in row.index else None
+                    if _balanced:
+                        st.markdown(f"**✨ バランス思考**")
+                        st.info(_balanced)
+                    else:
+                        st.markdown(f"**✨ 新しい見方（適応的思考）**")
+                        st.info(row["adaptive_thought"] or "（未記録）")
+
+                    st.markdown(
+                        f"**感情の変化**：{row['emotion_name']}　"
+                        f"{row['intensity_before']} → {row['intensity_after']}　"
+                        f"（{row['intensity_before'] - row['intensity_after']:+d} 変化）"
+                    )
+
+                    if _row_id is not None:
+                        if st.button(
+                            "✏️ この記録を編集する",
+                            key=f"btn_edit_{_row_id}",
+                        ):
+                            st.session_state.edit_record_id = _row_id
+                            st.rerun()
 
         with st.expander("📋 全記録の一覧（テーブル表示）"):
             display_df = df[["event_datetime", "situation", "emotion_name",

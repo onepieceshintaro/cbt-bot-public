@@ -94,22 +94,33 @@ def chat(messages: list[dict], mode: str = DEFAULT_MODE) -> str:
     return response.content[0].text
 
 
-# 認知の歪み10パターン（推定用）
+# 認知の歪みパターン（推定用）
+# 「結論の飛躍」は範囲が広いので、Burns の定義に従い 2 サブタイプを採用：
+#   - 結論の飛躍（占い）   = Fortune Telling（未来の悪い結末を先読み）
+#   - 結論の飛躍（読心）   = Mind Reading  （相手の内心を勝手に解釈）
 DISTORTION_PATTERNS = [
     "全か無か思考", "過度の一般化", "心のフィルター", "マイナス化思考",
-    "結論の飛躍", "拡大解釈と過小評価", "感情的決めつけ", "すべき思考",
+    "結論の飛躍（占い）", "結論の飛躍（読心）",
+    "拡大解釈と過小評価", "感情的決めつけ", "すべき思考",
     "レッテル貼り", "個人化",
 ]
 
 
-def infer_distortions_from_record(record: dict) -> list[str]:
+def infer_distortions_from_record(record: dict) -> list[dict]:
     """7コラム法のセッション完了後にバックエンドで歪みを推定する。
+    各歪みについて「どこからそう判断したか」の根拠も併せて返す。
+
+    戻り値: [{"name": "結論の飛躍（占い）", "evidence": "…と未来を断定的に予測している"}, ...]
     Haikuで1コール。失敗時は空リスト（フェイルセーフ）。"""
     prompt = f"""以下の思考記録から、該当しそうな**認知の歪み**を**最大3つまで**選んでください。
-該当なしの場合は空リスト。
+該当なしの場合は空リスト。各歪みについて、なぜそう判断したかの**根拠**も短く添えてください。
 
-# 認知の歪み10パターン
+# 認知の歪みパターン
 {" / ".join(DISTORTION_PATTERNS)}
+
+「結論の飛躍」は2タイプに分かれます：
+- 結論の飛躍（占い）：未来の悪い結末を根拠なく先読み（例：「失敗するに決まってる」）
+- 結論の飛躍（読心）：相手の内心を根拠なく悪く解釈（例：「嫌われたに違いない」）
 
 # 思考記録
 - 状況: {record.get("situation", "")}
@@ -120,25 +131,46 @@ def infer_distortions_from_record(record: dict) -> list[str]:
 
 # 出力
 必ず以下のJSONのみ（コードブロックや説明文なし）:
-{{"distortions": ["歪み名1", "歪み名2"]}}
+{{"distortions": [
+  {{"name": "歪み名", "evidence": "自動思考のどこを見て、なぜその歪みと判断したかを1〜2文で"}}
+]}}
 
-歪み名は上記10パターンから正確に選んでください。
+# 根拠の書き方
+- 自動思考や記録から具体的な語句を引用しつつ、なぜその歪みパターンに該当するかを示す
+- 「〜と断定している」「〜の根拠が示されていない」など、ユーザー本人が読み返してハッとできる表現
+- 60文字以内が目安。長すぎない
+
+歪み名は上記から正確に選んでください。
 """
     try:
         resp = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=200,
+            max_tokens=600,
             messages=[{"role": "user", "content": prompt}],
         )
         raw = resp.content[0].text if resp.content else ""
-        # JSON抽出
-        m = re.search(r"\{.*?\}", raw, re.DOTALL)
+        m = re.search(r"\{.*\}", raw, re.DOTALL)
         if not m:
             return []
         data = json.loads(m.group(0))
         items = data.get("distortions") or []
-        # 有効な歪み名だけに絞る
-        return [d for d in items if d in DISTORTION_PATTERNS][:3]
+        out: list[dict] = []
+        for d in items:
+            # 旧形式（文字列のみ）にも一応対応
+            if isinstance(d, str):
+                if d in DISTORTION_PATTERNS:
+                    out.append({"name": d, "evidence": ""})
+                continue
+            if not isinstance(d, dict):
+                continue
+            name = d.get("name")
+            if name not in DISTORTION_PATTERNS:
+                continue
+            ev = (d.get("evidence") or "").strip()
+            out.append({"name": name, "evidence": ev})
+            if len(out) >= 3:
+                break
+        return out
     except Exception:
         return []
 

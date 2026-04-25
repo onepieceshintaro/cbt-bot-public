@@ -78,8 +78,11 @@ def save_record(
         return int(row[0])
 
 
-def update_distortions(record_id: int, distortions: list[str],
+def update_distortions(record_id: int, distortions: list,
                        user_id: str | None = None):
+    """歪み一覧を更新。要素は str（旧形式）でも dict（新形式）でも可。
+    新形式: [{"name": "...", "evidence": "..."}]
+    """
     if user_id is None:
         user_id = _owner_user_id()
     sql = text("""
@@ -93,6 +96,48 @@ def update_distortions(record_id: int, distortions: list[str],
             "id": record_id,
             "user_id": user_id,
         })
+
+
+# 編集可能なフィールド一覧（DBカラム名と一致）
+_EDITABLE_FIELDS = {
+    "situation", "emotion_name", "intensity_before",
+    "automatic_thought", "distortions",
+    "adaptive_thought", "intensity_after",
+    "evidence_for", "evidence_against", "balanced_thought",
+}
+
+
+def update_record(record_id: int, fields: dict,
+                  user_id: str | None = None) -> int:
+    """過去の記録を編集する。fields に渡された列だけ更新する。
+    distortions はリスト（str/dict 混在可）で渡せばJSON化して保存する。"""
+    if user_id is None:
+        user_id = _owner_user_id()
+    if not fields:
+        return 0
+
+    safe: dict = {}
+    for k, v in fields.items():
+        if k not in _EDITABLE_FIELDS:
+            continue
+        if k == "distortions" and v is not None and not isinstance(v, str):
+            safe[k] = json.dumps(v, ensure_ascii=False)
+        else:
+            safe[k] = v
+
+    if not safe:
+        return 0
+
+    sets = ", ".join(f"{col} = :{col}" for col in safe.keys())
+    sql = text(f"""
+        UPDATE cbt_thought_records
+        SET {sets}
+        WHERE id = :id AND user_id = :user_id
+    """)
+    params = {**safe, "id": record_id, "user_id": user_id}
+    with get_engine().begin() as conn:
+        result = conn.execute(sql, params)
+        return result.rowcount or 0
 
 
 def load_records(user_id: str | None = None) -> pd.DataFrame:
