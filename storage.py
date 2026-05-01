@@ -144,11 +144,10 @@ def dismiss_distortion(record_id: int, distortion_name: str,
 
 
 # 編集可能なフィールド一覧（DBカラム名と一致）
+# 思想：詳しい内容は対話で固めたものなので後から書き換えない。
+# 日時のみ修正できれば、書き間違いに対応できる。
 _EDITABLE_FIELDS = {
-    "situation", "emotion_name", "intensity_before",
-    "automatic_thought", "distortions",
-    "adaptive_thought", "intensity_after",
-    "evidence_for", "evidence_against", "balanced_thought",
+    "event_datetime",
 }
 
 

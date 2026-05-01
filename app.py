@@ -401,14 +401,29 @@ if view == "💬 対話":
                 with st.container(border=True):
                     st.markdown(f"**例 {i}**")
                     st.write(s)
+                    if st.button(
+                        f"📝 この例（例{i}）で進む",
+                        key=f"adopt_balance_{i}",
+                        help="この文をそのまま採用して、対話を次に進めます",
+                    ):
+                        st.session_state.queued_prompt = s
+                        st.rerun()
             st.caption(
                 "これらはあくまで例です。**あなた自身の言葉で書くのが一番大切**。"
-                "ピンと来たものを参考に、下の入力欄にあなたの言葉を書いてみてください。"
+                "ピンと来たものをそのまま採用しても、参考にしながら下の入力欄に"
+                "自分の言葉で書き直してもOKです。"
             )
 
     # 完了後は入力欄を出さない
     if phase != "done":
-        if prompt := st.chat_input(placeholder):
+        # 採用ボタン経由で送られたメッセージがあれば優先
+        prompt = None
+        if st.session_state.get("queued_prompt"):
+            prompt = st.session_state.queued_prompt
+            st.session_state.queued_prompt = None
+        else:
+            prompt = st.chat_input(placeholder)
+        if prompt:
             st.session_state.messages.append({"role": "user", "content": prompt})
             with st.chat_message("user"):
                 st.write(prompt)
@@ -629,11 +644,10 @@ elif view == "📊 傾向を見る":
                 f"現在：**{have}件**（あと {max(0, need - have)}件）"
             )
         else:
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("直近の平均強度", f"{baseline['mean']:.0f}")
-            c2.metric("標準偏差 σ", f"{baseline['std']:.1f}")
-            c3.metric("いつもの上限（+2σ）", f"{baseline['upper_2s']:.0f}")
-            c4.metric("サンプル数", f"{baseline['n']}件")
+            # サンプル数だけ控えめに
+            st.caption(
+                f"📦 直近のベースライン（{baseline['n']}件のサンプルから学習）"
+            )
 
             # 感情強度の時系列＋2σバンド＋逸脱点を赤で
             chart_df = df.sort_values("event_datetime").copy()
@@ -644,14 +658,28 @@ elif view == "📊 傾向を見る":
 
             import plotly.graph_objects as go
             fig_bl = go.Figure()
+            # ±2σ バンド：色を強めて見えやすく
             fig_bl.add_hrect(
                 y0=baseline["lower_2s"], y1=baseline["upper_2s"],
-                fillcolor="rgba(100,180,255,0.08)", line_width=0,
+                fillcolor="rgba(100,180,255,0.18)", line_width=0,
                 annotation_text=f"いつもの範囲 (±{SIGMA_THRESHOLD:.0f}σ)",
                 annotation_position="top left",
             )
+            # 上下のσライン（点線）も足して、範囲の輪郭を見えやすく
             fig_bl.add_hline(
-                y=baseline["mean"], line_dash="dot", line_color="#888",
+                y=baseline["upper_2s"], line_dash="dash",
+                line_color="rgba(100,140,200,0.6)", line_width=1,
+                annotation_text=f"上限 +2σ ≒ {baseline['upper_2s']:.0f}",
+                annotation_position="bottom right",
+            )
+            fig_bl.add_hline(
+                y=max(baseline["lower_2s"], 0), line_dash="dash",
+                line_color="rgba(100,140,200,0.6)", line_width=1,
+                annotation_text=f"下限 -2σ ≒ {max(baseline['lower_2s'], 0):.0f}",
+                annotation_position="top right",
+            )
+            fig_bl.add_hline(
+                y=baseline["mean"], line_dash="dot", line_color="#666",
                 annotation_text=f"平均 {baseline['mean']:.0f}",
                 annotation_position="right",
             )
@@ -659,23 +687,49 @@ elif view == "📊 傾向を見る":
             fig_bl.add_trace(go.Scatter(
                 x=normal["event_datetime"], y=normal["intensity_before"],
                 mode="lines+markers", name="感情強度（前）",
-                line=dict(color="#4a90e2"), marker=dict(size=8),
+                line=dict(color="#4a90e2"), marker=dict(size=10),
             ))
             high = chart_df[chart_df["is_high"]]
             if not high.empty:
                 fig_bl.add_trace(go.Scatter(
                     x=high["event_datetime"], y=high["intensity_before"],
                     mode="markers", name="いつもより強い日",
-                    marker=dict(color="#e74c3c", size=14,
+                    marker=dict(color="#e74c3c", size=15,
                                 symbol="circle-open", line=dict(width=3)),
                 ))
             fig_bl.update_layout(
-                yaxis=dict(range=[0, 110], title="強度（前）"),
+                yaxis=dict(range=[0, 100], title="強度（0-100）"),
                 xaxis=dict(title="出来事の日時"),
-                height=340, margin=dict(l=10, r=10, t=10, b=10),
+                height=360, margin=dict(l=10, r=10, t=10, b=10),
                 hovermode="x unified",
+                legend=dict(
+                    orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="right", x=1,
+                ),
             )
-            st.plotly_chart(fig_bl, use_container_width=True)
+            st.plotly_chart(
+                fig_bl, use_container_width=True,
+                config={"displayModeBar": False},
+            )
+
+            # グラフの読み方（F：強度の算出方法も含めて説明）
+            with st.expander("📖 グラフの読み方", expanded=False):
+                st.markdown(
+                    "- **青い帯（±2σ）**：あなたの「いつもの強度の範囲」。"
+                    "ここに収まる感情はいつもの揺らぎと考えられます\n"
+                    "- **青い線とドット**：各セッションでの感情強度（前）の推移\n"
+                    "- **赤い丸**：いつもの範囲を超えた日。**ここが「いつもより強かった日」**\n"
+                    "- **点線（上限・下限）**：±2σ の境界線\n"
+                    "- **点線（平均）**：直近のあなたの平均値\n\n"
+                    "**赤い丸が増えてきたら**、いつもより強い感情が続いている時期かもしれません。"
+                    "**赤い丸が減ってきたら**、いつもの調子に戻りつつあるサイン。"
+                )
+                st.caption(
+                    "💡 **強度（0-100）について**："
+                    "対話の中で「そのときの感情の強さは何点？」と聞かれたとき、"
+                    "あなた自身が答えた数値です。AIや機械が判定したものではなく、"
+                    "**あなたの主観の数値**から平均と標準偏差を学習しています。"
+                )
 
             # 逸脱日の詳細
             if not high.empty:
@@ -884,93 +938,34 @@ elif view == "📊 傾向を見る":
                     st.caption(f"進め方：{_mode_label}")
 
                 if _is_editing and _row_id is not None:
-                    # ===== 編集フォーム =====
-                    st.caption("✏️ 編集モード（保存するまで変更は反映されません）")
+                    # ===== 編集フォーム（日時のみ）=====
+                    st.caption(
+                        "✏️ 編集モード（**出来事の日時のみ修正できます**。"
+                        "詳しい内容は対話で固めたものなので、後から書き換えません）"
+                    )
                     _form_key = f"edit_form_{_row_id}"
                     with st.form(_form_key):
-                        _new_situation = st.text_area(
-                            "🌱 状況",
-                            value=row.get("situation") or "",
-                            key=f"ed_sit_{_row_id}",
-                        )
-                        _new_thought = st.text_area(
-                            "💭 自動思考",
-                            value=row.get("automatic_thought") or "",
-                            key=f"ed_thought_{_row_id}",
-                        )
-                        _c_em1, _c_em2, _c_em3 = st.columns([2, 1, 1])
-                        with _c_em1:
-                            _new_emotion = st.text_input(
-                                "感情",
-                                value=row.get("emotion_name") or "",
-                                key=f"ed_em_{_row_id}",
+                        _current_dt = row.get("event_datetime")
+                        if isinstance(_current_dt, str):
+                            try:
+                                _current_dt = pd.to_datetime(_current_dt)
+                            except Exception:
+                                _current_dt = pd.Timestamp.now()
+                        if pd.isna(_current_dt):
+                            _current_dt = pd.Timestamp.now()
+                        _c_d, _c_t = st.columns(2)
+                        with _c_d:
+                            _new_date = st.date_input(
+                                "出来事の日付",
+                                value=_current_dt.date(),
+                                key=f"ed_date_{_row_id}",
                             )
-                        with _c_em2:
-                            _new_int_before = st.number_input(
-                                "強度（前）",
-                                min_value=0, max_value=100,
-                                value=int(row["intensity_before"]) if pd.notna(row.get("intensity_before")) else 0,
-                                step=5,
-                                key=f"ed_intb_{_row_id}",
+                        with _c_t:
+                            _new_time = st.time_input(
+                                "出来事の時刻",
+                                value=_current_dt.time(),
+                                key=f"ed_time_{_row_id}",
                             )
-                        with _c_em3:
-                            _new_int_after = st.number_input(
-                                "強度（後）",
-                                min_value=0, max_value=100,
-                                value=int(row["intensity_after"]) if pd.notna(row.get("intensity_after")) else 0,
-                                step=5,
-                                key=f"ed_inta_{_row_id}",
-                            )
-
-                        # 7コラム法の根拠／反証は値があるときだけ編集UIに出す
-                        _has_seven = bool(row.get("evidence_for")) or bool(row.get("evidence_against")) or bool(row.get("balanced_thought"))
-                        if _has_seven:
-                            _new_ev_for = st.text_area(
-                                "📌 根拠（事実）",
-                                value=row.get("evidence_for") or "",
-                                key=f"ed_evf_{_row_id}",
-                            )
-                            _new_ev_against = st.text_area(
-                                "🔄 反証",
-                                value=row.get("evidence_against") or "",
-                                key=f"ed_eva_{_row_id}",
-                            )
-                            _new_balanced = st.text_area(
-                                "✨ バランス思考",
-                                value=row.get("balanced_thought") or "",
-                                key=f"ed_bal_{_row_id}",
-                            )
-                            _new_adaptive = row.get("adaptive_thought") or ""
-                        else:
-                            _new_ev_for = row.get("evidence_for") or None
-                            _new_ev_against = row.get("evidence_against") or None
-                            _new_balanced = row.get("balanced_thought") or None
-                            _new_adaptive = st.text_area(
-                                "✨ 新しい見方（適応的思考）",
-                                value=row.get("adaptive_thought") or "",
-                                key=f"ed_adap_{_row_id}",
-                            )
-
-                        # 歪みは多選択（既存の根拠は名前ごとに保持してマージ）
-                        _existing_dists = normalize_distortions(row.get("distortions"))
-                        _existing_evidence_map = {
-                            d["name"]: d.get("evidence", "")
-                            for d in _existing_dists
-                        }
-                        _all_pattern_names = [
-                            n for n in DISTORTION_TIPS.keys()
-                            if n != "結論の飛躍"  # 互換用は選択肢から除外
-                        ]
-                        # 既存値のうち、選択肢に無いもの（旧データ）も残せるようにする
-                        for _n in _existing_evidence_map:
-                            if _n not in _all_pattern_names:
-                                _all_pattern_names.append(_n)
-                        _new_dist_names = st.multiselect(
-                            "🔍 認知の歪み",
-                            options=_all_pattern_names,
-                            default=[d["name"] for d in _existing_dists],
-                            key=f"ed_dist_{_row_id}",
-                        )
 
                         _c_btn1, _c_btn2 = st.columns(2)
                         with _c_btn1:
@@ -986,22 +981,10 @@ elif view == "📊 傾向を見る":
                         st.session_state.edit_record_id = None
                         st.rerun()
                     if _saved:
-                        # 既存の evidence をできるだけ維持。新規追加されたものは空
-                        _new_dists = [
-                            {"name": n, "evidence": _existing_evidence_map.get(n, "")}
-                            for n in _new_dist_names
-                        ]
+                        from datetime import datetime as _dt
+                        _new_event_dt = _dt.combine(_new_date, _new_time).isoformat()
                         _fields = {
-                            "situation": _new_situation,
-                            "automatic_thought": _new_thought,
-                            "emotion_name": _new_emotion,
-                            "intensity_before": int(_new_int_before),
-                            "intensity_after": int(_new_int_after),
-                            "evidence_for": _new_ev_for,
-                            "evidence_against": _new_ev_against,
-                            "balanced_thought": _new_balanced,
-                            "adaptive_thought": _new_adaptive,
-                            "distortions": _new_dists,
+                            "event_datetime": _new_event_dt,
                         }
                         try:
                             update_record(_row_id, _fields)
