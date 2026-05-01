@@ -665,18 +665,13 @@ elif view == "📊 傾向を見る":
                 annotation_text=f"いつもの範囲 (±{SIGMA_THRESHOLD:.0f}σ)",
                 annotation_position="top left",
             )
-            # 上下のσライン（点線）も足して、範囲の輪郭を見えやすく
+            # 上限（+2σ）のみ点線で強調。-2σ 側は強度では「弱かった日」=
+            # 注目しなくてよいので、線は引かない（バンドの色で輪郭は見える）
             fig_bl.add_hline(
                 y=baseline["upper_2s"], line_dash="dash",
                 line_color="rgba(100,140,200,0.6)", line_width=1,
                 annotation_text=f"上限 +2σ ≒ {baseline['upper_2s']:.0f}",
                 annotation_position="bottom right",
-            )
-            fig_bl.add_hline(
-                y=max(baseline["lower_2s"], 0), line_dash="dash",
-                line_color="rgba(100,140,200,0.6)", line_width=1,
-                annotation_text=f"下限 -2σ ≒ {max(baseline['lower_2s'], 0):.0f}",
-                annotation_position="top right",
             )
             fig_bl.add_hline(
                 y=baseline["mean"], line_dash="dot", line_color="#666",
@@ -718,11 +713,13 @@ elif view == "📊 傾向を見る":
                     "- **青い帯（±2σ）**：あなたの「いつもの強度の範囲」。"
                     "ここに収まる感情はいつもの揺らぎと考えられます\n"
                     "- **青い線とドット**：各セッションでの感情強度（前）の推移\n"
-                    "- **赤い丸**：いつもの範囲を超えた日。**ここが「いつもより強かった日」**\n"
-                    "- **点線（上限・下限）**：±2σ の境界線\n"
+                    "- **赤い丸**：いつもの範囲の**上限を超えた日** = **「いつもより強かった日」**\n"
+                    "- **点線（上限）**：+2σ のライン。ここを超えると赤丸がつきます\n"
                     "- **点線（平均）**：直近のあなたの平均値\n\n"
                     "**赤い丸が増えてきたら**、いつもより強い感情が続いている時期かもしれません。"
-                    "**赤い丸が減ってきたら**、いつもの調子に戻りつつあるサイン。"
+                    "**赤い丸が減ってきたら**、いつもの調子に戻りつつあるサイン。\n\n"
+                    "📝 **下に外れた日は赤丸になりません**。強度が低い＝あまり困らなかった日"
+                    "なので、ここでは注目対象から外しています。"
                 )
                 st.caption(
                     "💡 **強度（0-100）について**："
