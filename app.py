@@ -628,122 +628,137 @@ elif view == "📊 傾向を見る":
         df["hour"] = df["event_datetime"].dt.hour
         df["dow"] = df["event_datetime"].dt.day_name()
 
-        # === あなたのベースライン（個人の「いつもの状態」からの逸脱） ===
-        st.subheader("📊 あなたのベースライン")
+        # === 強度推移＋カテゴリ件数（B）＋改善幅（C） ===
+        st.subheader("📊 強度と対話の効果")
         st.caption(
-            "万人向けの「正常」ではなく、あなた自身の直近の状態から"
-            "「今回はいつもと違う」を検知します。"
+            "心が大きく動いた出来事の頻度（B）と、"
+            "対話で楽になった幅＝改善幅（C）を見ます。"
+            "「整理がうまくいっているか」は改善幅で見るのが分かりやすいです。"
         )
 
-        baseline = compute_intensity_baseline(df)
-        if not baseline or baseline.get("insufficient"):
-            need = (baseline or {}).get("required", MIN_RECORDS_FOR_BASELINE)
-            have = (baseline or {}).get("n", 0)
-            st.info(
-                f"ベースライン学習は記録 **{need}件** 以上で有効になります。"
-                f"現在：**{have}件**（あと {max(0, need - have)}件）"
-            )
+        chart_df = df.sort_values("event_datetime").copy()
+        chart_df["intensity_before"] = pd.to_numeric(
+            chart_df["intensity_before"], errors="coerce"
+        )
+        chart_df["intensity_after"] = pd.to_numeric(
+            chart_df["intensity_after"], errors="coerce"
+        )
+        chart_df = chart_df.dropna(subset=["intensity_before"])
+
+        if len(chart_df) < 3:
+            st.info("記録が3件以上たまると、推移のグラフが表示されます。")
         else:
-            # サンプル数だけ控えめに
-            st.caption(
-                f"📦 直近のベースライン（{baseline['n']}件のサンプルから学習）"
-            )
-
-            # 感情強度の時系列＋2σバンド＋逸脱点を赤で
-            chart_df = df.sort_values("event_datetime").copy()
-            chart_df["intensity_before"] = pd.to_numeric(
-                chart_df["intensity_before"], errors="coerce"
-            )
-            chart_df["is_high"] = chart_df["intensity_before"] > baseline["upper_2s"]
-
             import plotly.graph_objects as go
-            fig_bl = go.Figure()
-            # 「いつもの範囲」バンド：上限（+2σ）のみが意味を持つので、
-            # 下方向は 0 まで開放（= 下側に「境界」を見せない）
-            fig_bl.add_hrect(
-                y0=0, y1=baseline["upper_2s"],
-                fillcolor="rgba(100,180,255,0.18)", line_width=0,
-                annotation_text="いつもの範囲（+2σ以下）",
-                annotation_position="top left",
-            )
-            # 上限（+2σ）のみ点線で強調。-2σ 側は強度では「弱かった日」=
-            # 注目しなくてよいので、線は引かない（バンドの色で輪郭は見える）
-            fig_bl.add_hline(
-                y=baseline["upper_2s"], line_dash="dash",
-                line_color="rgba(100,140,200,0.6)", line_width=1,
-                annotation_text=f"上限 +2σ ≒ {baseline['upper_2s']:.0f}",
-                annotation_position="bottom right",
-            )
-            fig_bl.add_hline(
-                y=baseline["mean"], line_dash="dot", line_color="#666",
-                annotation_text=f"平均 {baseline['mean']:.0f}",
+
+            # ----- 1. 強度の推移（シンプル版） -----
+            st.markdown("#### 強度の推移")
+            mean_intensity = float(chart_df["intensity_before"].mean())
+            fig_intensity = go.Figure()
+            fig_intensity.add_hline(
+                y=mean_intensity, line_dash="dot", line_color="#888",
+                annotation_text=f"平均 {mean_intensity:.0f}",
                 annotation_position="right",
             )
-            normal = chart_df[~chart_df["is_high"]]
-            fig_bl.add_trace(go.Scatter(
-                x=normal["event_datetime"], y=normal["intensity_before"],
-                mode="lines+markers", name="感情強度（前）",
+            fig_intensity.add_trace(go.Scatter(
+                x=chart_df["event_datetime"], y=chart_df["intensity_before"],
+                mode="lines+markers", name="強度（前）",
                 line=dict(color="#4a90e2"), marker=dict(size=10),
             ))
-            high = chart_df[chart_df["is_high"]]
-            if not high.empty:
-                fig_bl.add_trace(go.Scatter(
-                    x=high["event_datetime"], y=high["intensity_before"],
-                    mode="markers", name="いつもより強い日",
-                    marker=dict(color="#e74c3c", size=15,
-                                symbol="circle-open", line=dict(width=3)),
-                ))
-            fig_bl.update_layout(
+            fig_intensity.update_layout(
                 yaxis=dict(range=[0, 100], title="強度（0-100）"),
                 xaxis=dict(title="出来事の日時"),
-                height=360, margin=dict(l=10, r=10, t=10, b=10),
+                height=300, margin=dict(l=10, r=10, t=10, b=10),
                 hovermode="x unified",
-                legend=dict(
-                    orientation="h", yanchor="bottom", y=1.02,
-                    xanchor="right", x=1,
-                ),
             )
             st.plotly_chart(
-                fig_bl, use_container_width=True,
+                fig_intensity, use_container_width=True,
                 config={"displayModeBar": False},
             )
 
-            # グラフの読み方（F：強度の算出方法も含めて説明）
-            with st.expander("📖 グラフの読み方", expanded=False):
-                st.markdown(
-                    "- **青い帯（+2σ以下）**：あなたの「**いつもの範囲**」。"
-                    "ここに収まっている感情はいつもの揺らぎと考えられます\n"
-                    "- **青い線とドット**：各セッションでの感情強度（前）の推移\n"
-                    "- **赤い丸**：いつもの範囲の**上限を超えた日** = **「いつもより強かった日」**\n"
-                    "- **点線（上限）**：+2σ のライン。ここを超えると赤丸がつきます\n"
-                    "- **点線（平均）**：直近のあなたの平均値\n\n"
-                    "**赤い丸が増えてきたら**、いつもより強い感情が続いている時期かもしれません。"
-                    "**赤い丸が減ってきたら**、いつもの調子に戻りつつあるサイン。\n\n"
-                    "📝 **強度が低い日は注目対象に含めていません**。"
-                    "あまり困らなかった日なので気にしなくて大丈夫です。"
-                    "そのため、グラフの帯も下方向は開いた形にしてあります。"
+            # ----- 2. 強度カテゴリの件数（B） -----
+            st.markdown("#### 直近30日の強度の内訳")
+            cutoff = pd.Timestamp.now() - pd.Timedelta(days=30)
+            recent = chart_df[chart_df["event_datetime"] >= cutoff]
+            if not recent.empty:
+                _i = recent["intensity_before"]
+                n_high = int((_i >= 80).sum())
+                n_mid = int(((_i >= 60) & (_i < 80)).sum())
+                n_low = int((_i < 60).sum())
+                c_b1, c_b2, c_b3 = st.columns(3)
+                c_b1.metric("80以上(強い反応)", f"{n_high}件")
+                c_b2.metric("60-79(中程度)", f"{n_mid}件")
+                c_b3.metric("0-59(軽め)", f"{n_low}件")
+                st.caption(
+                    "💡 80以上が多い時期 = **心が大きく動く出来事が多かった時期**。"
+                    "「整理がうまくいっているか」は次の **改善幅** を見たほうが分かりやすいです。"
+                )
+            else:
+                st.caption("直近30日の記録はまだありません。")
+
+            # ----- 3. 改善幅（C：対話の効果） -----
+            with_after = chart_df.dropna(subset=["intensity_after"]).copy()
+            if len(with_after) >= 3:
+                st.markdown("#### 対話の効果(改善幅)")
+                with_after["improvement"] = (
+                    with_after["intensity_before"] - with_after["intensity_after"]
+                )
+                mean_imp = float(with_after["improvement"].mean())
+
+                fig_imp = go.Figure()
+                fig_imp.add_hline(y=0, line_color="#aaa", line_width=1)
+                fig_imp.add_hline(
+                    y=mean_imp, line_dash="dot", line_color="#888",
+                    annotation_text=f"平均改善幅 {mean_imp:.0f}",
+                    annotation_position="right",
+                )
+                fig_imp.add_trace(go.Bar(
+                    x=with_after["event_datetime"],
+                    y=with_after["improvement"],
+                    marker=dict(color="#27ae60"),
+                    name="改善幅(前-後)",
+                ))
+                fig_imp.update_layout(
+                    yaxis=dict(title="改善幅(前-後)"),
+                    xaxis=dict(title="出来事の日時"),
+                    height=300, margin=dict(l=10, r=10, t=10, b=10),
+                    hovermode="x unified",
+                    showlegend=False,
+                )
+                st.plotly_chart(
+                    fig_imp, use_container_width=True,
+                    config={"displayModeBar": False},
                 )
                 st.caption(
-                    "💡 **強度（0-100）について**："
-                    "対話の中で「そのときの感情の強さは何点？」と聞かれたとき、"
-                    "あなた自身が答えた数値です。AIや機械が判定したものではなく、"
-                    "**あなたの主観の数値**から平均と標準偏差を学習しています。"
+                    "💡 緑の棒が **高いほど対話で楽になった** サイン。"
+                    "**低い／0付近の日が増えてきたら、対話だけでは下がりにくい時期** "
+                    "かもしれません(一人で抱え込まない方がいい合図かも)。"
+                )
+            else:
+                st.caption(
+                    "対話前後の強度がそろった記録が3件以上で、改善幅のグラフが出ます。"
                 )
 
-            # 逸脱日の詳細
-            if not high.empty:
-                with st.expander(f"🔴 いつもより強かったセッション（{len(high)}件）"):
-                    for _, r in high.iterrows():
-                        dt_s = r["event_datetime"].strftime("%Y-%m-%d %H:%M")
-                        dev = deviation_from_baseline(
-                            int(r["intensity_before"]), baseline
-                        )
-                        sigma_str = f"+{dev['sigma']:.1f}σ" if dev else ""
-                        st.markdown(
-                            f"**{dt_s}** ｜ {r['emotion_name']}（強度{r['intensity_before']}、{sigma_str}）"
-                        )
-                        if r.get("situation"):
-                            st.caption(f"場面: {r['situation'][:100]}")
+            # ----- グラフの読み方 expander -----
+            with st.expander("📖 グラフの読み方", expanded=False):
+                st.markdown(
+                    "**強度の推移**\n"
+                    "- 各セッションでの「対話前の感情強度」を時系列に並べたもの\n"
+                    "- 平均線(点線)はあなたの直近の平均\n\n"
+                    "**直近30日の強度の内訳**\n"
+                    "- **80以上**：強い反応(心が大きく動いた)\n"
+                    "- **60-79**：中程度\n"
+                    "- **0-59**：軽め\n"
+                    "- 80以上が多い時期 = 整理を必要とする出来事が多かった時期\n\n"
+                    "**改善幅(対話の効果)**\n"
+                    "- 各セッションの **対話前 − 対話後** の値\n"
+                    "- プラスが大きい = 対話で気持ちが楽になった\n"
+                    "- 0付近・低い棒が続く = 対話だけでは下がりにくい時期\n"
+                    "- 「整理がうまくいっているか」は **改善幅で見るのが直接的** です\n\n"
+                    "💡 **強度(0-100)について**："
+                    "対話の中で「そのときの感情の強さは何点？」と聞かれたとき、"
+                    "あなた自身が答えた数値です。AIや機械が判定したものではなく、"
+                    "**あなたの主観の数値**から平均などを学習しています。"
+                )
 
         # 直近の頻出歪み TOP3
         top_d = top_distortions(df, top_n=3)
