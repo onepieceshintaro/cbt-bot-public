@@ -1031,17 +1031,71 @@ elif view == "📊 傾向を見る":
 
                     # 歪みをバッジ風に＋根拠（あれば）
                     _dists = normalize_distortions(row.get("distortions"))
-                    if _dists:
+                    # 違和感ありで外したものは別扱い
+                    _active_dists = [d for d in _dists if not d.get("dismissed")]
+                    _dismissed_dists = [d for d in _dists if d.get("dismissed")]
+                    if _active_dists:
                         st.markdown("**🔍 気づいた認知の歪み**")
-                        badges = "　".join([f"`{d['name']}`" for d in _dists])
+                        badges = "　".join([f"`{d['name']}`" for d in _active_dists])
                         st.markdown(badges)
-                        _has_ev = any(d.get("evidence") for d in _dists)
-                        if _has_ev:
-                            with st.expander("💭 こう判断した理由", expanded=False):
-                                for d in _dists:
-                                    if d.get("evidence"):
+                        _has_ev = any(d.get("evidence") for d in _active_dists)
+                        if _has_ev and _row_id is not None:
+                            with st.expander("💭 AIがそう見えた理由（推察・参考まで）", expanded=False):
+                                st.caption(
+                                    "💡 違和感があれば「違和感」を押すと外せます。"
+                                    "AIの推察より、あなた自身の感覚を信じてください。"
+                                )
+                                for i, d in enumerate(_active_dists):
+                                    if not d.get("evidence"):
+                                        continue
+                                    _c1, _c2 = st.columns([5, 1])
+                                    with _c1:
                                         st.markdown(f"**{d['name']}**")
                                         st.caption(d["evidence"])
+                                    with _c2:
+                                        if st.button(
+                                            "違和感",
+                                            key=f"dismiss_past_{_row_id}_{i}_{d['name']}",
+                                            help="この判定を外します",
+                                        ):
+                                            from storage import dismiss_distortion
+                                            try:
+                                                dismiss_distortion(_row_id, d["name"], True)
+                                                st.toast("外しました", icon="🌿")
+                                                st.rerun()
+                                            except Exception as _e:
+                                                st.warning(f"外す処理に失敗: {_e}")
+                    elif _dists and not _active_dists:
+                        # 全部 dismissed
+                        st.caption("（AIが推測した歪みは、すべて違和感ありとして外されています）")
+
+                    # 違和感で外したものを「戻す」導線（折りたたみ）
+                    if _dismissed_dists and _row_id is not None:
+                        with st.expander(
+                            f"🌿 違和感ありとして外した歪み（{len(_dismissed_dists)}件）",
+                            expanded=False,
+                        ):
+                            for j, d in enumerate(_dismissed_dists):
+                                _c1, _c2 = st.columns([5, 1])
+                                with _c1:
+                                    st.markdown(
+                                        f"~~**{d['name']}**~~"
+                                    )
+                                    if d.get("evidence"):
+                                        st.caption(f"~~{d['evidence']}~~")
+                                with _c2:
+                                    if st.button(
+                                        "戻す",
+                                        key=f"undismiss_past_{_row_id}_{j}_{d['name']}",
+                                        help="この判定を再び表示します",
+                                    ):
+                                        from storage import dismiss_distortion
+                                        try:
+                                            dismiss_distortion(_row_id, d["name"], False)
+                                            st.toast("戻しました", icon="↩️")
+                                            st.rerun()
+                                        except Exception as _e:
+                                            st.warning(f"戻す処理に失敗: {_e}")
 
                     # バランス思考があればそちらを優先表示、なければ adaptive_thought
                     _balanced = row.get("balanced_thought") if "balanced_thought" in row.index else None
