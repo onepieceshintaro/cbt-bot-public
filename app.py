@@ -79,7 +79,7 @@ def progress_ratio(phase: str | None, order: list[str]) -> float:
 
 def normalize_distortions(raw) -> list[dict]:
     """記録の distortions を、旧形式（list[str]）でも新形式（list[dict]）でも
-    [{"name": str, "evidence": str}] に揃える。"""
+    [{"name": str, "evidence": str, "dismissed": bool}] に揃える。"""
     if not raw:
         return []
     items = raw
@@ -91,11 +91,12 @@ def normalize_distortions(raw) -> list[dict]:
     out: list[dict] = []
     for it in items or []:
         if isinstance(it, str):
-            out.append({"name": it, "evidence": ""})
+            out.append({"name": it, "evidence": "", "dismissed": False})
         elif isinstance(it, dict) and it.get("name"):
             out.append({
                 "name": str(it["name"]),
                 "evidence": str(it.get("evidence") or ""),
+                "dismissed": bool(it.get("dismissed", False)),
             })
     return out
 
@@ -477,6 +478,8 @@ if view == "💬 対話":
                                 if d["name"] in DISTORTION_TIPS
                                 or d["name"].startswith("結論の飛躍")
                             ]
+                            # 違和感ボタンで dismiss 反映するために record_id を保持
+                            st.session_state.last_record_id = row_id
                             st.session_state.show_last_tips = False
                         except Exception as e:
                             st.warning(f"保存に失敗: {e}")
@@ -489,19 +492,58 @@ if view == "💬 対話":
         if st.session_state.last_distortions:
             st.divider()
             _last = st.session_state.last_distortions  # list[dict]
-            names_str = "・".join(d["name"] for d in _last)
-            st.caption(
-                f"今回出ていたパターン：**{names_str}**"
-            )
-            # 各歪みについて、なぜそう判断したかの根拠（推定があれば）
-            _has_evidence = any(d.get("evidence") for d in _last)
+            # 違和感で外されたものは集計から除外
+            _active = [d for d in _last if not d.get("dismissed")]
+
+            if _active:
+                names_str = "・".join(d["name"] for d in _active)
+                st.caption(
+                    f"今回見えてきそうなパターン：**{names_str}**"
+                )
+            else:
+                st.caption(
+                    "今回はAIから挙げられたパターンを、すべて違和感ありとして外しました。"
+                    "あなたの感覚を信じてください。"
+                )
+
+            # 各歪みについて、AIの推察した理由（推察形・違和感ボタン付き）
+            _has_evidence = any(d.get("evidence") for d in _active)
             if _has_evidence:
-                with st.expander("💭 こう判断した理由（参考まで）", expanded=False):
-                    for d in _last:
-                        if d.get("evidence"):
+                with st.expander("💭 AIがそう見えた理由（推察・参考まで）", expanded=False):
+                    st.caption(
+                        "💡 ピンと来なかったり違和感があれば、無理に当てはめないで構いません。"
+                        "右の「違和感」を押すと、その項目を外せます。"
+                        "AIの推察よりも、あなた自身の感覚を信じてください。"
+                    )
+                    _record_id = st.session_state.get("last_record_id")
+                    for i, d in enumerate(_active):
+                        if not d.get("evidence"):
+                            continue
+                        col1, col2 = st.columns([5, 1])
+                        with col1:
                             st.markdown(f"**{d['name']}**")
                             st.caption(d["evidence"])
-            if not st.session_state.show_last_tips:
+                        with col2:
+                            if _record_id and st.button(
+                                "違和感",
+                                key=f"dismiss_last_{i}_{d['name']}",
+                                help="この判定を外します",
+                            ):
+                                from storage import dismiss_distortion
+                                try:
+                                    dismiss_distortion(_record_id, d["name"], True)
+                                    # session_state も即時反映
+                                    for s in st.session_state.last_distortions:
+                                        if s.get("name") == d["name"]:
+                                            s["dismissed"] = True
+                                    st.toast("外しました", icon="🌿")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.warning(f"外す処理に失敗: {e}")
+            # 全部 dismiss されたらヒント表示は出さない
+            if not _active:
+                pass
+            elif not st.session_state.show_last_tips:
                 if st.button(
                     "💡 このパターンへの対処のヒントを見る",
                     use_container_width=False,
@@ -514,7 +556,8 @@ if view == "💬 対話":
                 )
             else:
                 st.markdown("**🛠 対処のヒント（あくまで参考まで）**")
-                _names_for_tip = [d["name"] for d in _last]
+                # 違和感で外したものはヒント対象から除外
+                _names_for_tip = [d["name"] for d in _active]
                 for name, tip in get_tips_for(_names_for_tip):
                     with st.container(border=True):
                         st.markdown(f"**💡 {name}**")

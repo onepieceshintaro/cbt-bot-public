@@ -81,7 +81,7 @@ def save_record(
 def update_distortions(record_id: int, distortions: list,
                        user_id: str | None = None):
     """歪み一覧を更新。要素は str（旧形式）でも dict（新形式）でも可。
-    新形式: [{"name": "...", "evidence": "..."}]
+    新形式: [{"name": "...", "evidence": "...", "dismissed": False}]
     """
     if user_id is None:
         user_id = _owner_user_id()
@@ -96,6 +96,51 @@ def update_distortions(record_id: int, distortions: list,
             "id": record_id,
             "user_id": user_id,
         })
+
+
+def dismiss_distortion(record_id: int, distortion_name: str,
+                       dismissed: bool = True,
+                       user_id: str | None = None) -> int:
+    """指定の歪みに対して「これは違いました」フラグを立てる/外す。
+    旧形式（list[str]）は dict 化したうえで更新する。
+    """
+    if user_id is None:
+        user_id = _owner_user_id()
+    sel = text("""
+        SELECT distortions FROM cbt_thought_records
+        WHERE id = :id AND user_id = :user_id
+    """)
+    upd = text("""
+        UPDATE cbt_thought_records SET distortions = :distortions
+        WHERE id = :id AND user_id = :user_id
+    """)
+    with get_engine().begin() as conn:
+        row = conn.execute(sel, {"id": record_id, "user_id": user_id}).first()
+        if not row:
+            return 0
+        try:
+            current = json.loads(row[0] or "[]")
+        except Exception:
+            current = []
+        new_list = []
+        for it in current:
+            if isinstance(it, dict):
+                d = dict(it)
+                if d.get("name") == distortion_name:
+                    d["dismissed"] = dismissed
+                new_list.append(d)
+            elif isinstance(it, str):
+                new_list.append({
+                    "name": it,
+                    "evidence": "",
+                    "dismissed": dismissed if it == distortion_name else False,
+                })
+        conn.execute(upd, {
+            "distortions": json.dumps(new_list, ensure_ascii=False),
+            "id": record_id,
+            "user_id": user_id,
+        })
+        return 1
 
 
 # 編集可能なフィールド一覧（DBカラム名と一致）
