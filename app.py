@@ -711,7 +711,7 @@ elif view == "📊 傾向を見る":
 
         # ===== 📂 自分の状態の流れ（折りたたみ・任意） =====
         with st.expander(
-            "📂 自分の状態の流れを見る（強度・改善幅）", expanded=False,
+            "📂 自分の状態の流れ（強度・改善幅）", expanded=False,
         ):
             st.caption(
                 "数字で状態を確認したい時だけ開いてください。"
@@ -834,7 +834,7 @@ elif view == "📊 傾向を見る":
 
         if len(_d_rows) >= 5:
             with st.expander(
-                "📂 認知の歪みの時系列を見る（週ごとの推移）", expanded=False,
+                "📂 認知の歪みの時系列（週ごとの推移）", expanded=False,
             ):
                 st.caption(
                     "週ごとにどの歪みがどれくらい出ているか。"
@@ -886,7 +886,7 @@ elif view == "📊 傾向を見る":
         # ===== 📂 自分の使い方を知る（時間帯×曜日・折りたたみ） =====
         if len(df) >= 3:
             with st.expander(
-                "📂 自分の使い方を知る（曜日×時間帯）", expanded=False,
+                "📂 利用パターン（曜日×時間帯）", expanded=False,
             ):
                 st.caption(
                     "どの曜日・時間帯にこのアプリを使う傾向があるか。"
@@ -925,7 +925,7 @@ elif view == "📊 傾向を見る":
                     config={"displayModeBar": False},
                 )
 
-        st.markdown("#### 📂 個別の記録を振り返る")
+        st.markdown("#### 📂 個別の記録")
         st.caption(
             "過去の自分がどんな新しい見方にたどり着いたか、見返せます。"
             "気になる時だけスクロールしてください。"
