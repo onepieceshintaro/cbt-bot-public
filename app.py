@@ -628,208 +628,163 @@ elif view == "📊 傾向を見る":
         df["hour"] = df["event_datetime"].dt.hour
         df["dow"] = df["event_datetime"].dt.day_name()
 
-        # === 強度推移＋カテゴリ件数（B）＋改善幅（C） ===
-        st.subheader("📊 強度と対話の効果")
+        # ===== 🔍 最近の認知の歪み（メイン） =====
+        st.subheader("🔍 最近の認知の歪み")
         st.caption(
-            "心が大きく動いた出来事の頻度（B）と、"
-            "対話で楽になった幅＝改善幅（C）を見ます。"
-            "「整理がうまくいっているか」は改善幅で見るのが分かりやすいです。"
+            "あなたが最近、自分の中でハマりやすかったパターン。"
+            "気づいておくと、新しい場面で「また同じパターンかも」と立ち止まりやすくなります。"
         )
 
-        chart_df = df.sort_values("event_datetime").copy()
-        chart_df["intensity_before"] = pd.to_numeric(
-            chart_df["intensity_before"], errors="coerce"
-        )
-        chart_df["intensity_after"] = pd.to_numeric(
-            chart_df["intensity_after"], errors="coerce"
-        )
-        chart_df = chart_df.dropna(subset=["intensity_before"])
+        from baseline import distortion_trend
+        from distortion_tips import get_tip as _get_tip
 
-        if len(chart_df) < 3:
-            st.info("記録が3件以上たまると、推移のグラフが表示されます。")
+        _trend_top = distortion_trend(df, top_n=3, recent_days=15)
+        if not _trend_top:
+            st.caption("まだ歪みのデータが溜まっていません。記録を続けてみてください。")
         else:
-            import plotly.graph_objects as go
-
-            # ----- 1. 強度の推移（シンプル版） -----
-            st.markdown("#### 強度の推移")
-            mean_intensity = float(chart_df["intensity_before"].mean())
-            fig_intensity = go.Figure()
-            fig_intensity.add_hline(
-                y=mean_intensity, line_dash="dot", line_color="#888",
-                annotation_text=f"平均 {mean_intensity:.0f}",
-                annotation_position="right",
-            )
-            fig_intensity.add_trace(go.Scatter(
-                x=chart_df["event_datetime"], y=chart_df["intensity_before"],
-                mode="lines+markers", name="強度（前）",
-                line=dict(color="#4a90e2"), marker=dict(size=10),
-            ))
-            fig_intensity.update_layout(
-                yaxis=dict(range=[0, 100], title="強度（0-100）"),
-                xaxis=dict(title="出来事の日時"),
-                height=300, margin=dict(l=10, r=10, t=10, b=10),
-                hovermode="x unified",
-            )
-            st.plotly_chart(
-                fig_intensity, use_container_width=True,
-                config={"displayModeBar": False},
-            )
-
-            # ----- 2. 強度カテゴリの件数（B） -----
-            st.markdown("#### 直近30日の強度の内訳")
-            cutoff = pd.Timestamp.now() - pd.Timedelta(days=30)
-            recent = chart_df[chart_df["event_datetime"] >= cutoff]
-            if not recent.empty:
-                _i = recent["intensity_before"]
-                n_high = int((_i >= 80).sum())
-                n_mid = int(((_i >= 60) & (_i < 80)).sum())
-                n_low = int((_i < 60).sum())
-                c_b1, c_b2, c_b3 = st.columns(3)
-                c_b1.metric("80以上(強い反応)", f"{n_high}件")
-                c_b2.metric("60-79(中程度)", f"{n_mid}件")
-                c_b3.metric("0-59(軽め)", f"{n_low}件")
-                st.caption(
-                    "💡 80以上が多い時期 = **心が大きく動く出来事が多かった時期**。"
-                    "「整理がうまくいっているか」は次の **改善幅** を見たほうが分かりやすいです。"
-                )
-            else:
-                st.caption("直近30日の記録はまだありません。")
-
-            # ----- 3. 改善幅（C：対話の効果） -----
-            with_after = chart_df.dropna(subset=["intensity_after"]).copy()
-            if len(with_after) >= 3:
-                st.markdown("#### 対話の効果(改善幅)")
-                with_after["improvement"] = (
-                    with_after["intensity_before"] - with_after["intensity_after"]
-                )
-                mean_imp = float(with_after["improvement"].mean())
-
-                fig_imp = go.Figure()
-                fig_imp.add_hline(y=0, line_color="#aaa", line_width=1)
-                fig_imp.add_hline(
-                    y=mean_imp, line_dash="dot", line_color="#888",
-                    annotation_text=f"平均改善幅 {mean_imp:.0f}",
-                    annotation_position="right",
-                )
-                fig_imp.add_trace(go.Bar(
-                    x=with_after["event_datetime"],
-                    y=with_after["improvement"],
-                    marker=dict(color="#27ae60"),
-                    name="改善幅(前-後)",
-                ))
-                fig_imp.update_layout(
-                    yaxis=dict(title="改善幅(前-後)"),
-                    xaxis=dict(title="出来事の日時"),
-                    height=300, margin=dict(l=10, r=10, t=10, b=10),
-                    hovermode="x unified",
-                    showlegend=False,
-                )
-                st.plotly_chart(
-                    fig_imp, use_container_width=True,
-                    config={"displayModeBar": False},
-                )
-                st.caption(
-                    "💡 緑の棒が **高いほど対話で楽になった** サイン。"
-                    "**低い／0付近の日が増えてきたら、対話だけでは下がりにくい時期** "
-                    "かもしれません(一人で抱え込まない方がいい合図かも)。"
-                )
-            else:
-                st.caption(
-                    "対話前後の強度がそろった記録が3件以上で、改善幅のグラフが出ます。"
-                )
-
-            # ----- グラフの読み方 expander -----
-            with st.expander("📖 グラフの読み方", expanded=False):
-                st.markdown(
-                    "**強度の推移**\n"
-                    "- 各セッションでの「対話前の感情強度」を時系列に並べたもの\n"
-                    "- 平均線(点線)はあなたの直近の平均\n\n"
-                    "**直近30日の強度の内訳**\n"
-                    "- **80以上**：強い反応(心が大きく動いた)\n"
-                    "- **60-79**：中程度\n"
-                    "- **0-59**：軽め\n"
-                    "- 80以上が多い時期 = 整理を必要とする出来事が多かった時期\n\n"
-                    "**改善幅(対話の効果)**\n"
-                    "- 各セッションの **対話前 − 対話後** の値\n"
-                    "- プラスが大きい = 対話で気持ちが楽になった\n"
-                    "- 0付近・低い棒が続く = 対話だけでは下がりにくい時期\n"
-                    "- 「整理がうまくいっているか」は **改善幅で見るのが直接的** です\n\n"
-                    "💡 **強度(0-100)について**："
-                    "対話の中で「そのときの感情の強さは何点？」と聞かれたとき、"
-                    "あなた自身が答えた数値です。AIや機械が判定したものではなく、"
-                    "**あなたの主観の数値**から平均などを学習しています。"
-                )
-
-        # 直近の頻出歪み TOP3
-        top_d = top_distortions(df, top_n=3)
-        if top_d:
-            st.markdown("**🔍 最近よく出ている認知の歪み**")
-            cols = st.columns(len(top_d))
-            for col, d in zip(cols, top_d):
-                col.metric(
-                    d["name"],
-                    f"{d['count']}回",
-                    f"{d['rate']*100:.0f}% のセッションで",
-                )
-            st.caption(
-                "※ これらに気づいておくと、新しいセッションで「また同じパターンかも」と"
-                "立ち止まりやすくなります"
-            )
-
-            # 各歪みへの対処ヒント（エクスパンダー、興味ある人だけ展開）
-            st.markdown("**🛠 対処のヒント（参考まで）**")
-            st.caption(
-                "以下はあくまで一般的な対処例です。"
-                "ピンと来るものがあれば試してみる、くらいの距離感で。"
-            )
-            from distortion_tips import get_tip as _get_tip
-            for d in top_d:
-                tip = _get_tip(d["name"])
-                if not tip:
-                    continue
-                with st.expander(f"💡 {d['name']} への対処を見る"):
-                    st.markdown(f"**特徴**：{tip['description']}")
-                    if tip.get("strength"):
-                        st.markdown(f"💪 **良い面**：{tip['strength']}")
-                    st.markdown(f"**ハマりやすいパターン**：{tip['trap']}")
-                    st.markdown("**試せそうな一歩**")
-                    for a in tip["actions"]:
-                        st.markdown(f"- {a}")
+            for d_info in _trend_top:
+                with st.container(border=True):
+                    _name = d_info["name"]
+                    _h1, _h2, _h3 = st.columns([3, 2, 3])
+                    _h1.markdown(f"### {_name}")
+                    _h2.markdown(
+                        f"**{d_info['count']}回**　"
+                        f"<span style='color:#888'>({d_info['rate']*100:.0f}%)</span>",
+                        unsafe_allow_html=True,
+                    )
+                    _h3.markdown(
+                        f"{d_info['trend_emoji']} {d_info['trend_text']}"
+                    )
+                    _tip = _get_tip(_name)
+                    if _tip and _tip.get("actions"):
+                        st.markdown(
+                            f"💡 **立ち止まれる一歩**：{_tip['actions'][0]}"
+                        )
+                    if _tip:
+                        with st.expander("もっと詳しく（特徴・良い面・他の試せる一歩）"):
+                            st.markdown(f"**特徴**：{_tip['description']}")
+                            if _tip.get("strength"):
+                                st.markdown(f"💪 **良い面**：{_tip['strength']}")
+                            st.markdown(f"**ハマりやすいパターン**：{_tip['trap']}")
+                            if len(_tip["actions"]) > 1:
+                                st.markdown("**他に試せそうな一歩**")
+                                for _a in _tip["actions"][1:]:
+                                    st.markdown(f"- {_a}")
 
         st.divider()
 
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.subheader("感情強度の変化（前 vs 後）")
-            melt = df.melt(
-                id_vars=["event_datetime"],
-                value_vars=["intensity_before", "intensity_after"],
-                var_name="タイミング", value_name="強度"
+        # ===== 📂 自分の状態の流れ（折りたたみ・任意） =====
+        with st.expander(
+            "📂 自分の状態の流れを見る（強度・改善幅）", expanded=False,
+        ):
+            st.caption(
+                "数字で状態を確認したい時だけ開いてください。"
+                "毎日見るものではなく、月に1回くらい眺める素材として。"
             )
-            fig = px.line(
-                melt, x="event_datetime", y="強度",
-                color="タイミング", markers=True,
-                labels={"event_datetime": "出来事の日時"},
-            )
-            st.plotly_chart(fig, use_container_width=True)
 
-        with col2:
-            st.subheader("認知の歪みの出現頻度")
-            all_distortions = []
-            for s in df["distortions"].dropna():
-                all_distortions.extend(distortion_names(s))
-            counts = Counter(all_distortions)
-            if counts:
-                dist_df = pd.DataFrame(
-                    counts.most_common(), columns=["歪み", "回数"]
-                )
-                fig2 = px.bar(dist_df, x="回数", y="歪み", orientation="h")
-                st.plotly_chart(fig2, use_container_width=True)
+            chart_df = df.sort_values("event_datetime").copy()
+            chart_df["intensity_before"] = pd.to_numeric(
+                chart_df["intensity_before"], errors="coerce"
+            )
+            chart_df["intensity_after"] = pd.to_numeric(
+                chart_df["intensity_after"], errors="coerce"
+            )
+            chart_df = chart_df.dropna(subset=["intensity_before"])
+
+            if len(chart_df) < 3:
+                st.info("記録が3件以上たまると、推移のグラフが表示されます。")
             else:
-                st.info("歪みデータがまだありません。")
+                import plotly.graph_objects as go
 
-        # 認知の歪みの時系列（どの歪みが時期ごとにどう変化しているか）
+                # ----- 強度の推移 -----
+                st.markdown("**強度の推移**")
+                mean_intensity = float(chart_df["intensity_before"].mean())
+                fig_intensity = go.Figure()
+                fig_intensity.add_hline(
+                    y=mean_intensity, line_dash="dot", line_color="#888",
+                    annotation_text=f"平均 {mean_intensity:.0f}",
+                    annotation_position="right",
+                )
+                fig_intensity.add_trace(go.Scatter(
+                    x=chart_df["event_datetime"], y=chart_df["intensity_before"],
+                    mode="lines+markers", name="強度（前）",
+                    line=dict(color="#4a90e2"), marker=dict(size=10),
+                ))
+                fig_intensity.update_layout(
+                    yaxis=dict(range=[0, 100], title="強度（0-100）"),
+                    xaxis=dict(title="出来事の日時"),
+                    height=300, margin=dict(l=10, r=10, t=10, b=10),
+                    hovermode="x unified",
+                )
+                st.plotly_chart(
+                    fig_intensity, use_container_width=True,
+                    config={"displayModeBar": False},
+                )
+
+                # ----- 強度カテゴリの件数 -----
+                st.markdown("**直近30日の強度の内訳**")
+                cutoff = pd.Timestamp.now() - pd.Timedelta(days=30)
+                recent = chart_df[chart_df["event_datetime"] >= cutoff]
+                if not recent.empty:
+                    _i = recent["intensity_before"]
+                    n_high = int((_i >= 80).sum())
+                    n_mid = int(((_i >= 60) & (_i < 80)).sum())
+                    n_low = int((_i < 60).sum())
+                    c_b1, c_b2, c_b3 = st.columns(3)
+                    c_b1.metric("80以上(強い反応)", f"{n_high}件")
+                    c_b2.metric("60-79(中程度)", f"{n_mid}件")
+                    c_b3.metric("0-59(軽め)", f"{n_low}件")
+                else:
+                    st.caption("直近30日の記録はまだありません。")
+
+                # ----- 改善幅（対話の効果） -----
+                with_after = chart_df.dropna(subset=["intensity_after"]).copy()
+                if len(with_after) >= 3:
+                    st.markdown("**対話の効果(改善幅)**")
+                    with_after["improvement"] = (
+                        with_after["intensity_before"]
+                        - with_after["intensity_after"]
+                    )
+                    mean_imp = float(with_after["improvement"].mean())
+
+                    fig_imp = go.Figure()
+                    fig_imp.add_hline(y=0, line_color="#aaa", line_width=1)
+                    fig_imp.add_hline(
+                        y=mean_imp, line_dash="dot", line_color="#888",
+                        annotation_text=f"平均改善幅 {mean_imp:.0f}",
+                        annotation_position="right",
+                    )
+                    fig_imp.add_trace(go.Bar(
+                        x=with_after["event_datetime"],
+                        y=with_after["improvement"],
+                        marker=dict(color="#27ae60"),
+                        name="改善幅(前-後)",
+                    ))
+                    fig_imp.update_layout(
+                        yaxis=dict(title="改善幅(前-後)"),
+                        xaxis=dict(title="出来事の日時"),
+                        height=300, margin=dict(l=10, r=10, t=10, b=10),
+                        hovermode="x unified",
+                        showlegend=False,
+                    )
+                    st.plotly_chart(
+                        fig_imp, use_container_width=True,
+                        config={"displayModeBar": False},
+                    )
+                    st.caption(
+                        "💡 緑の棒が **高いほど対話で楽になった** サイン。"
+                        "**低い／0付近の日が増えてきたら、対話だけでは下がりにくい時期** "
+                        "かもしれません(一人で抱え込まない方がいい合図かも)。"
+                    )
+
+                # グラフの読み方（インラインで簡潔に）
+                st.caption(
+                    "📖 **強度(0-100)について**：対話で「そのときの感情の強さは何点？」と聞かれたとき"
+                    "あなた自身が答えた数値。"
+                    "**改善幅** = 対話前 − 対話後。プラスが大きい = 対話で楽になった。"
+                )
+
+        # ===== 📂 認知の歪みの時系列（折りたたみ） =====
         _d_rows = []
         for _, _r in df.iterrows():
             _names = distortion_names(_r.get("distortions"))
@@ -842,89 +797,103 @@ elif view == "📊 傾向を見る":
                 })
 
         if len(_d_rows) >= 5:
-            st.subheader("🗓 認知の歪みの時系列")
-            st.caption(
-                "週ごとにどの歪みがどれくらい出ているか。"
-                "「最近は違うパターンが増えてきた」などの気づきに使えます。"
-            )
-
-            _dd = pd.DataFrame(_d_rows)
-            _dd["week"] = _dd["event_datetime"].dt.to_period("W-MON").dt.start_time
-
-            # 上位パターンだけ色付きで表示（それ以外はノイズになる）
-            _top_names = _dd["distortion"].value_counts().head(6).index.tolist()
-            _dd_top = _dd[_dd["distortion"].isin(_top_names)]
-
-            weekly = (
-                _dd_top.groupby(["week", "distortion"])
-                .size().reset_index(name="count")
-            )
-            n_weeks = weekly["week"].nunique()
-
-            # 週が少ないときは bar、多いときは area の方が見やすい
-            if n_weeks <= 8:
-                fig_ts = px.bar(
-                    weekly, x="week", y="count", color="distortion",
-                    labels={"week": "週", "count": "出現回数",
-                            "distortion": "歪み"},
-                    category_orders={"distortion": _top_names},
+            with st.expander(
+                "📂 認知の歪みの時系列を見る（週ごとの推移）", expanded=False,
+            ):
+                st.caption(
+                    "週ごとにどの歪みがどれくらい出ているか。"
+                    "「最近は違うパターンが増えてきた」などの気づきに使えます。"
                 )
-            else:
-                fig_ts = px.area(
-                    weekly, x="week", y="count", color="distortion",
-                    labels={"week": "週", "count": "出現回数",
-                            "distortion": "歪み"},
-                    category_orders={"distortion": _top_names},
+
+                _dd = pd.DataFrame(_d_rows)
+                _dd["week"] = _dd["event_datetime"].dt.to_period("W-MON").dt.start_time
+
+                _top_names = _dd["distortion"].value_counts().head(6).index.tolist()
+                _dd_top = _dd[_dd["distortion"].isin(_top_names)]
+
+                weekly = (
+                    _dd_top.groupby(["week", "distortion"])
+                    .size().reset_index(name="count")
                 )
-            fig_ts.update_layout(
-                height=360, margin=dict(l=10, r=10, t=10, b=10),
-                legend=dict(orientation="h", y=-0.25),
-                hovermode="x unified",
-            )
-            st.plotly_chart(fig_ts, use_container_width=True)
+                n_weeks = weekly["week"].nunique()
 
-            _hidden = _dd["distortion"].nunique() - len(_top_names)
-            _note = f"出現回数が多い上位{len(_top_names)}パターンのみ表示"
-            if _hidden > 0:
-                _note += f"（残り{_hidden}パターンは省略）"
-            st.caption(_note + "。")
+                if n_weeks <= 8:
+                    fig_ts = px.bar(
+                        weekly, x="week", y="count", color="distortion",
+                        labels={"week": "週", "count": "出現回数",
+                                "distortion": "歪み"},
+                        category_orders={"distortion": _top_names},
+                    )
+                else:
+                    fig_ts = px.area(
+                        weekly, x="week", y="count", color="distortion",
+                        labels={"week": "週", "count": "出現回数",
+                                "distortion": "歪み"},
+                        category_orders={"distortion": _top_names},
+                    )
+                fig_ts.update_layout(
+                    height=360, margin=dict(l=10, r=10, t=10, b=10),
+                    legend=dict(orientation="h", y=-0.25),
+                    hovermode="x unified",
+                )
+                st.plotly_chart(
+                    fig_ts, use_container_width=True,
+                    config={"displayModeBar": False},
+                )
 
-        # 時間帯・曜日のヒートマップ（3件以上で表示）
+                _hidden = _dd["distortion"].nunique() - len(_top_names)
+                _note = f"出現回数が多い上位{len(_top_names)}パターンのみ表示"
+                if _hidden > 0:
+                    _note += f"（残り{_hidden}パターンは省略）"
+                st.caption(_note + "。")
+
+        # ===== 📂 自分の使い方を知る（時間帯×曜日・折りたたみ） =====
         if len(df) >= 3:
-            st.subheader("いつ気持ちが揺れやすい？（曜日×時間帯）")
-            dow_order = ["Monday", "Tuesday", "Wednesday", "Thursday",
-                         "Friday", "Saturday", "Sunday"]
-            dow_jp = {"Monday": "月", "Tuesday": "火", "Wednesday": "水",
-                      "Thursday": "木", "Friday": "金",
-                      "Saturday": "土", "Sunday": "日"}
-            df["dow_jp"] = df["dow"].map(dow_jp)
-            # 時間帯を4つに束ねる（朝/昼/夕/夜）
-            def bucket(h):
-                if 5 <= h < 11:  return "朝 (5-11)"
-                if 11 <= h < 15: return "昼 (11-15)"
-                if 15 <= h < 19: return "夕 (15-19)"
-                return "夜 (19-5)"
-            df["time_bucket"] = df["hour"].apply(bucket)
-            bucket_order = ["朝 (5-11)", "昼 (11-15)", "夕 (15-19)", "夜 (19-5)"]
+            with st.expander(
+                "📂 自分の使い方を知る（曜日×時間帯）", expanded=False,
+            ):
+                st.caption(
+                    "どの曜日・時間帯にこのアプリを使う傾向があるか。"
+                    "「平日朝に多い」「金曜夜に多い」といった気づきの素材です。"
+                )
+                dow_order = ["Monday", "Tuesday", "Wednesday", "Thursday",
+                             "Friday", "Saturday", "Sunday"]
+                dow_jp = {"Monday": "月", "Tuesday": "火", "Wednesday": "水",
+                          "Thursday": "木", "Friday": "金",
+                          "Saturday": "土", "Sunday": "日"}
+                df["dow_jp"] = df["dow"].map(dow_jp)
 
-            pivot = df.pivot_table(
-                index="time_bucket", columns="dow_jp",
-                values="intensity_before", aggfunc="mean"
-            ).reindex(index=bucket_order,
-                      columns=[dow_jp[d] for d in dow_order])
+                def _bucket(h):
+                    if 5 <= h < 11:  return "朝 (5-11)"
+                    if 11 <= h < 15: return "昼 (11-15)"
+                    if 15 <= h < 19: return "夕 (15-19)"
+                    return "夜 (19-5)"
+                df["time_bucket"] = df["hour"].apply(_bucket)
+                bucket_order = ["朝 (5-11)", "昼 (11-15)",
+                                "夕 (15-19)", "夜 (19-5)"]
 
-            fig3 = px.imshow(
-                pivot, text_auto=".0f",
-                labels={"color": "感情強度（平均）"},
-                color_continuous_scale="Reds",
-                aspect="auto",
-            )
-            st.plotly_chart(fig3, use_container_width=True)
-        else:
-            st.caption("あと数件記録が溜まると、時間帯×曜日のパターンも見えてきます。")
+                pivot = df.pivot_table(
+                    index="time_bucket", columns="dow_jp",
+                    values="intensity_before", aggfunc="mean"
+                ).reindex(index=bucket_order,
+                          columns=[dow_jp[d] for d in dow_order])
 
-        st.subheader("記録の詳細（新しい順）")
-        st.caption("過去の自分がどんな新しい見方にたどり着いたか、見返せます。")
+                fig3 = px.imshow(
+                    pivot, text_auto=".0f",
+                    labels={"color": "感情強度（平均）"},
+                    color_continuous_scale="Reds",
+                    aspect="auto",
+                )
+                st.plotly_chart(
+                    fig3, use_container_width=True,
+                    config={"displayModeBar": False},
+                )
+
+        st.markdown("#### 📂 個別の記録を振り返る")
+        st.caption(
+            "過去の自分がどんな新しい見方にたどり着いたか、見返せます。"
+            "気になる時だけスクロールしてください。"
+        )
 
         # 新しい順に表示
         recent = df.sort_values("event_datetime", ascending=False).head(10)

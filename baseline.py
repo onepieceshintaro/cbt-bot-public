@@ -102,12 +102,43 @@ def deviation_from_baseline(intensity: int, baseline: dict) -> dict | None:
     }
 
 
+def _extract_active_names(distortions_json) -> list[str]:
+    """distortions JSON から、dismissed=False の歪み名だけ抜き出す。
+    旧形式（list[str]）/ 新形式（list[dict{name, evidence, dismissed}]）両対応。"""
+    try:
+        items = json.loads(distortions_json) if isinstance(distortions_json, str) else distortions_json
+    except Exception:
+        return []
+    if not items:
+        return []
+    out = []
+    for it in items:
+        if isinstance(it, dict) and it.get("name") and not it.get("dismissed"):
+            out.append(it["name"])
+        elif isinstance(it, str):
+            out.append(it)
+    return out
+
+
+def _count_distortions(period_df: pd.DataFrame) -> tuple[Counter, int]:
+    """期間内の歪み件数を集計（dismissed除外）。"""
+    counter: Counter = Counter()
+    total_records = 0
+    for s in period_df["distortions"].dropna():
+        names = _extract_active_names(s)
+        if not names:
+            continue
+        total_records += 1
+        counter.update(names)
+    return counter, total_records
+
+
 def top_distortions(
     df: pd.DataFrame,
     window_days: int = DEFAULT_WINDOW_DAYS,
     top_n: int = 3,
 ) -> list[dict]:
-    """直近 `window_days` 日で出現した認知の歪み上位N個。
+    """直近 `window_days` 日で出現した認知の歪み上位N個（dismissed除外）。
 
     戻り値: [{"name": "最悪化", "count": 5, "rate": 0.42}, ...]
     """
@@ -120,26 +151,7 @@ def top_distortions(
     if recent.empty:
         recent = d  # fallback
 
-    counter: Counter = Counter()
-    total_records = 0
-    for s in recent["distortions"].dropna():
-        try:
-            items = json.loads(s)
-        except Exception:
-            continue
-        if not items:
-            continue
-        # 旧形式（list[str]）と新形式（list[dict{name, evidence}]）の両対応
-        names = [
-            it["name"] if isinstance(it, dict) else it
-            for it in items
-            if (isinstance(it, dict) and it.get("name")) or isinstance(it, str)
-        ]
-        if not names:
-            continue
-        total_records += 1
-        counter.update(names)
-
+    counter, total_records = _count_distortions(recent)
     if total_records == 0:
         return []
 
@@ -147,6 +159,64 @@ def top_distortions(
         {"name": name, "count": cnt, "rate": round(cnt / total_records, 2)}
         for name, cnt in counter.most_common(top_n)
     ]
+
+
+def distortion_trend(
+    df: pd.DataFrame,
+    top_n: int = 3,
+    recent_days: int = 15,
+) -> list[dict]:
+    """各 TOP歪みの「最近増えてる／減ってる」を直近(recent_days)日 vs その前(recent_days)日で比較。
+
+    戻り値: [{
+        "name", "count", "rate",
+        "recent_count", "older_count", "delta",
+        "trend_emoji": "📈"|"📉"|"─",
+        "trend_text": str
+    }, ...]
+    """
+    d = _prepare_df(df)
+    if d.empty:
+        return []
+
+    now = pd.Timestamp.now().normalize()
+    recent_cutoff = now - pd.Timedelta(days=recent_days)
+    older_cutoff = now - pd.Timedelta(days=recent_days * 2)
+
+    recent_df = d[d["event_datetime"] >= recent_cutoff]
+    older_df = d[(d["event_datetime"] < recent_cutoff)
+                 & (d["event_datetime"] >= older_cutoff)]
+
+    recent_counts, _ = _count_distortions(recent_df)
+    older_counts, _ = _count_distortions(older_df)
+
+    # トップ判定は全期間ベースで取得
+    top = top_distortions(df, top_n=top_n, window_days=DEFAULT_WINDOW_DAYS)
+
+    out = []
+    for d_info in top:
+        name = d_info["name"]
+        recent_n = recent_counts.get(name, 0)
+        older_n = older_counts.get(name, 0)
+        delta = recent_n - older_n
+        if delta > 0:
+            emoji = "📈"
+            text = f"直近{recent_days}日で +{delta}回（増加傾向）"
+        elif delta < 0:
+            emoji = "📉"
+            text = f"直近{recent_days}日で {delta}回（減少傾向）"
+        else:
+            emoji = "─"
+            text = "ほぼ変化なし"
+        out.append({
+            **d_info,
+            "recent_count": recent_n,
+            "older_count": older_n,
+            "delta": delta,
+            "trend_emoji": emoji,
+            "trend_text": text,
+        })
+    return out
 
 
 def baseline_summary(df: pd.DataFrame, window_days: int = DEFAULT_WINDOW_DAYS) -> dict:
