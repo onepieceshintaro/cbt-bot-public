@@ -467,6 +467,8 @@ if view == "💬 対話":
                             )
                             st.success("思考記録を保存しました。お疲れさまでした。")
                             st.session_state.record_saved = True
+                            # 伝え方ノートへの誘導判定用に保存
+                            st.session_state.last_saved_record = record
 
                             # 歪みを確定：記録に既にあればそれ、無ければ推定する
                             _captured_distortions = record.get("distortions") or []
@@ -502,6 +504,40 @@ if view == "💬 対話":
             st.rerun()  # 進捗バーとヒントを即座に更新
     else:
         st.success("今回のセッションは完了です。お疲れさまでした。")
+
+        # ===== 伝え方ノートへの誘導（言えなかった系のキーワードがあれば自動サジェスト） =====
+        ASSERTION_URL = (
+            "https://assertion-bot-public-7yjqhpnvshkdkj7avedrml.streamlit.app/"
+        )
+        # 直近の記録テキストからキーワード検出
+        _last_record = st.session_state.get("last_saved_record") or {}
+        _text_pool = " ".join([
+            str(_last_record.get("situation") or ""),
+            str(_last_record.get("automatic_thought") or ""),
+            str(_last_record.get("balanced_thought") or ""),
+        ])
+        _assertion_keywords = [
+            "言えなかった", "言えなく", "言えない",
+            "伝えられなかった", "伝えられない",
+            "黙って", "黙った", "飲み込んだ",
+            "我慢", "流された", "反論できなかった",
+            "言うべきだった", "強く言えなく", "うまく言えな",
+        ]
+        _detected = any(kw in _text_pool for kw in _assertion_keywords)
+        _u_param = f"?u={CURRENT_USER_ID}" if CURRENT_USER_ID else ""
+
+        if _detected:
+            with st.container(border=True):
+                st.markdown("💬 **もしかして、伝え方が引っかかった場面でしたか？**")
+                st.caption(
+                    "「言えなかった」「伝えられなかった」のような表現が記録に出てきました。"
+                    "もしよければ、伝え方ノートで**3パターンの文案を一緒に考える**選択肢もあります。"
+                    "押しつけではないので、ピンと来なければスルーしてください。"
+                )
+                st.link_button(
+                    "🗣 伝え方ノートで文案を作る",
+                    ASSERTION_URL + _u_param,
+                )
 
         # 対話後の対処ヒント（オプトイン）
         if st.session_state.last_distortions:
