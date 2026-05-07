@@ -143,15 +143,10 @@ with st.sidebar:
     _hub_url = "https://app-public-qpy8b2ziwgdf9h2vmu5hqp.streamlit.app/"
     if CURRENT_USER_ID:
         _hub_url += f"?u={CURRENT_USER_ID}"
-    st.markdown(
-        f'<a href="{_hub_url}" target="_self" '
-        f'style="display:block;width:100%;padding:0.5em 1em;'
-        f'border:1px solid rgba(49,51,63,0.2);border-radius:0.5em;'
-        f'text-decoration:none;color:inherit;text-align:center;'
-        f'box-sizing:border-box;font-size:0.95em;'
-        f'margin-bottom:0.5em;">'
-        f'🏠 HOME に戻る</a>',
-        unsafe_allow_html=True,
+    st.link_button(
+        "🏠 HOME に戻る",
+        _hub_url,
+        use_container_width=True,
     )
     st.link_button(
         "💬 ご意見・感想",
@@ -640,14 +635,10 @@ if view == "💬 対話":
             _done_hub_url += f"?u={CURRENT_USER_ID}"
         _col_done_1, _col_done_2 = st.columns(2)
         with _col_done_1:
-            st.markdown(
-                f'<a href="{_done_hub_url}" target="_self" '
-                f'style="display:block;width:100%;padding:0.5em 1em;'
-                f'border:1px solid rgba(49,51,63,0.2);border-radius:0.5em;'
-                f'text-decoration:none;color:inherit;text-align:center;'
-                f'box-sizing:border-box;font-size:0.95em;">'
-                f'🏠 HOMEに戻る</a>',
-                unsafe_allow_html=True,
+            st.link_button(
+                "🏠 HOMEに戻る",
+                _done_hub_url,
+                use_container_width=True,
             )
         with _col_done_2:
             st.button(
