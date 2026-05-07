@@ -13,6 +13,9 @@
 *.sqlite
 *.sqlite3
 
+# RAG ローカルベクトル DB
+chroma_db/
+
 # Python
 __pycache__/
 *.py[cod]

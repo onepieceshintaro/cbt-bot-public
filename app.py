@@ -9,7 +9,7 @@ import plotly.express as px
 
 from cbt_engine import (
     chat, assess_risk, client as anthropic_client,
-    infer_distortions_from_record, suggest_balanced_thoughts,
+    infer_distortions_from_record, infer_distortions_ab, suggest_balanced_thoughts,
 )
 from storage import (
     init_db, save_record, load_records, update_distortions, update_record,
@@ -308,6 +308,24 @@ with st.sidebar:
         - こころの健康相談統一ダイヤル：0570-064-556
         """)
 
+    # ── 開発者用：LLM vs RAG 比較パネル（Phase A 検証用） ──
+    _ab = st.session_state.get("last_ab_compare")
+    if _ab:
+        with st.expander("🧪 歪み推定 A/B 比較（dev）", expanded=False):
+            st.caption("LLM 版（Haiku, evidence 付き）と RAG 版（Voyage 意味検索）を並走中。")
+            _llm_names = [d.get("name", "") for d in _ab.get("llm", [])]
+            _rag_items = _ab.get("rag", [])
+            st.markdown(f"**LLM (Haiku)**：{', '.join(_llm_names) or '（なし）'}")
+            if _rag_items:
+                _rag_lines = [f"{d['name']} ({d.get('score', 0):.2f})" for d in _rag_items]
+                st.markdown(f"**RAG (Voyage)**：{', '.join(_rag_lines)}")
+            else:
+                st.markdown("**RAG (Voyage)**：（なし）")
+            inter = _ab.get("intersection", [])
+            if inter:
+                st.markdown(f"**両者一致**：{', '.join(inter)}")
+            st.caption("採用は当面 LLM 結果。違いを観察して RAG の精度を見ます。")
+
 
 # --- メインエリア（サイドバーの選択で切替） ---
 if view == "💬 対話":
@@ -480,7 +498,10 @@ if view == "💬 対話":
                             ):
                                 try:
                                     with st.spinner("パターンを推定中..."):
-                                        dists = infer_distortions_from_record(record)
+                                        # Phase A: LLM と RAG を並走させ、A/B 比較ログを残す
+                                        ab = infer_distortions_ab(record)
+                                    dists = ab.get("llm", [])  # 採用は当面 LLM 主
+                                    st.session_state.last_ab_compare = ab  # サイドバーに表示
                                     if dists:
                                         update_distortions(row_id, dists)
                                         _captured_distortions = dists

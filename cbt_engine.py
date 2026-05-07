@@ -177,6 +177,75 @@ def infer_distortions_from_record(record: dict) -> list[dict]:
         return []
 
 
+# ──────────────────────────────────────────────
+# RAG 版の歪み推定（Phase A: 意味検索ベース）
+# ──────────────────────────────────────────────
+# 自動思考のテキストだけを使って、Voyage AI 埋め込み + chromadb で類似歪みを抽出する。
+# LLM 版（Haiku で全記録を見て選び evidence も付ける）と並走させ、A/B 比較する。
+
+# RAG ヒットを採用する閾値（cosine 類似度 = 1 - cosine_distance）
+_RAG_MIN_SCORE = 0.20
+
+
+def infer_distortions_via_rag(automatic_thought: str, top_k: int = 3) -> list[dict]:
+    """自動思考の意味検索で類似歪みを返す（フェイルセーフ）。
+
+    返り値: [{"name": "...", "evidence": "意味的に近い", "score": 0.xx}, ...]
+    - DISTORTION_PATTERNS に含まれる正規名のみ（親カテゴリ「結論の飛躍」は除外）
+    - 失敗時は []
+    """
+    if not automatic_thought or not automatic_thought.strip():
+        return []
+    try:
+        from rag.distortion_index import find_similar_distortions
+        hits = find_similar_distortions(automatic_thought, top_k=max(top_k * 2, 5))
+    except Exception:
+        return []
+    out: list[dict] = []
+    seen: set[str] = set()
+    for h in hits:
+        name = h.get("name", "")
+        score = float(h.get("score", 0.0))
+        if score < _RAG_MIN_SCORE:
+            continue
+        if name not in DISTORTION_PATTERNS:
+            continue  # 親カテゴリ「結論の飛躍」などは除外
+        if name in seen:
+            continue
+        seen.add(name)
+        out.append({
+            "name": name,
+            "evidence": f"意味検索で類似（score={score:.2f}）",
+            "score": score,
+        })
+        if len(out) >= top_k:
+            break
+    return out
+
+
+def infer_distortions_ab(record: dict) -> dict:
+    """LLM 版と RAG 版を並走させ、両方の結果を返す（A/B 比較用）。
+
+    Returns:
+        {
+          "llm": [{"name": .., "evidence": ..}, ...],
+          "rag": [{"name": .., "evidence": .., "score": ..}, ...],
+          "intersection": ["name", ...],
+          "union_names": ["name", ...],
+        }
+    """
+    llm = infer_distortions_from_record(record)
+    rag = infer_distortions_via_rag(record.get("automatic_thought", ""))
+    llm_names = [d.get("name") for d in llm if d.get("name")]
+    rag_names = [d.get("name") for d in rag if d.get("name")]
+    inter = [n for n in llm_names if n in rag_names]
+    union: list[str] = []
+    for n in llm_names + rag_names:
+        if n and n not in union:
+            union.append(n)
+    return {"llm": llm, "rag": rag, "intersection": inter, "union_names": union}
+
+
 # バランス思考の提案（7コラム法のバランス思考フェーズでの補助ツール）
 BALANCED_THOUGHT_SYSTEM = """あなたはCBTの「7コラム法」でバランス思考を考える補助ツールです。
 ユーザーとAIのこれまでの対話（出来事・自動思考・感情・根拠・反証）を踏まえ、

@@ -5,3 +5,6 @@ pandas>=2.1
 plotly>=5.20
 SQLAlchemy>=2.0
 psycopg2-binary>=2.9
+# Phase A: Distortion Pattern RAG
+chromadb>=0.5,<0.6
+voyageai>=0.2
