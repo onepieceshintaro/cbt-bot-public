@@ -6,6 +6,7 @@ import pandas as pd
 from sqlalchemy import text
 
 from db import get_engine, init_db as _init_db
+from time_utils import now_jst_naive
 
 
 def _owner_user_id() -> str:
@@ -32,7 +33,7 @@ def save_record(
     user_id: str | None = None,
 ) -> int:
     if event_datetime is None:
-        event_datetime = datetime.now().isoformat()
+        event_datetime = now_jst_naive().isoformat()
     if user_id is None:
         user_id = _owner_user_id()
 
@@ -44,7 +45,7 @@ def save_record(
 
     params = {
         "user_id": user_id,
-        "created_at": datetime.now().isoformat(),
+        "created_at": now_jst_naive().isoformat(),
         "event_datetime": event_datetime,
         "situation": record.get("situation"),
         "emotion_name": emotion.get("name"),
@@ -214,7 +215,7 @@ def save_weekly_report(week_start, week_end, markdown: str, n_records: int,
             "user_id": user_id,
             "week_start": str(week_start),
             "week_end": str(week_end),
-            "generated_at": datetime.now().isoformat(),
+            "generated_at": now_jst_naive().isoformat(),
             "n_records": n_records,
             "markdown": markdown,
         })
@@ -267,7 +268,7 @@ def save_risk_score(user_message: str, result: dict, user_id: str | None = None)
     with get_engine().begin() as conn:
         conn.execute(sql, {
             "user_id": user_id,
-            "created_at": datetime.now().isoformat(),
+            "created_at": now_jst_naive().isoformat(),
             "user_message": user_message,
             "triggered": 1 if result.get("triggered") else 0,
             "source": result.get("source"),

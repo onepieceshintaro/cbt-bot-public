@@ -4,6 +4,8 @@ from datetime import date, timedelta
 
 import pandas as pd
 
+from time_utils import today_jst
+
 
 REPORT_SYSTEM_PROMPT = """あなたは、ユーザーの1週間の思考記録を**冷静に振り返る**サポーターです。
 
@@ -54,7 +56,7 @@ REPORT_SYSTEM_PROMPT = """あなたは、ユーザーの1週間の思考記録�
 
 def current_week_range(today: date | None = None) -> tuple[date, date]:
     """ISO週（月曜始まり）の開始日・終了日を返す。"""
-    today = today or date.today()
+    today = today or today_jst()
     start = today - timedelta(days=today.weekday())
     end = start + timedelta(days=6)
     return start, end

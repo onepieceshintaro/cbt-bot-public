@@ -29,6 +29,7 @@ from baseline import (
 )
 from distortion_tips import DISTORTION_TIPS, get_tips_for
 from _user import render_account_sidebar
+from time_utils import now_jst_naive, today_jst
 
 st.set_page_config(page_title="思考の整理ノート", page_icon="💭", layout="wide")
 
@@ -341,7 +342,7 @@ if view == "💬 対話":
             label_visibility="collapsed",
             key="quick_when",
         )
-        now = datetime.now()
+        now = now_jst_naive()  # JST に統一（サーバーが UTC でも 9h ズレない）
         if quick == "今さっき":
             event_dt = now
         elif quick == "今日の朝":

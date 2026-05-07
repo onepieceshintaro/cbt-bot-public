@@ -11,6 +11,7 @@
 """
 import uuid
 from datetime import datetime
+from time_utils import now_jst_naive
 
 import streamlit as st
 from sqlalchemy import text
@@ -76,7 +77,7 @@ def set_nickname(uid: str, nickname: str) -> None:
                     {
                         "uid": uid,
                         "nick": nickname,
-                        "now": datetime.now().isoformat(),
+                        "now": now_jst_naive().isoformat(),
                     },
                 )
     except Exception:
