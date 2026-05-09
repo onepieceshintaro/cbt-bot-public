@@ -228,10 +228,20 @@ def infer_distortions_ab(record: dict) -> dict:
 
     Returns:
         {
-          "llm": [{"name": .., "evidence": ..}, ...],
-          "rag": [{"name": .., "evidence": .., "score": ..}, ...],
-          "intersection": ["name", ...],
-          "union_names": ["name", ...],
+          "llm": [{"name": .., "evidence": ..}, ...],          # LLM の生結果
+          "rag": [{"name": .., "evidence": .., "score": ..}],  # RAG の生結果
+          "intersection": ["name", ...],                       # 両者一致した名前
+          "union_names": ["name", ...],                        # 全名前（dedupe）
+          "tagged": [                                          # 保存用 tagged list
+            {
+              "name": str,
+              "evidence": str,
+              "source": "llm" | "rag" | "both",
+              "shown": bool,        # True=ユーザーに表示, False=影ログ
+              "dismissed": bool,    # 初期値 False
+              "rag_score": float | None,  # RAG ヒット時のみ
+            }, ...
+          ]
         }
     """
     llm = infer_distortions_from_record(record)
@@ -239,11 +249,55 @@ def infer_distortions_ab(record: dict) -> dict:
     llm_names = [d.get("name") for d in llm if d.get("name")]
     rag_names = [d.get("name") for d in rag if d.get("name")]
     inter = [n for n in llm_names if n in rag_names]
-    union: list[str] = []
-    for n in llm_names + rag_names:
-        if n and n not in union:
-            union.append(n)
-    return {"llm": llm, "rag": rag, "intersection": inter, "union_names": union}
+
+    # rag を name でルックアップ可能に
+    rag_by_name = {d["name"]: d for d in rag if d.get("name")}
+
+    tagged: list[dict] = []
+    seen: set[str] = set()
+
+    # ① LLM が拾った項目（ユーザーに表示する）
+    for d in llm:
+        name = d.get("name")
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        source = "both" if name in rag_names else "llm"
+        item = {
+            "name": name,
+            "evidence": d.get("evidence", ""),
+            "source": source,
+            "shown": True,
+            "dismissed": False,
+        }
+        if source == "both":
+            item["rag_score"] = rag_by_name.get(name, {}).get("score")
+        tagged.append(item)
+
+    # ② RAG だけが拾った項目（影ログ・表示しない）
+    for d in rag:
+        name = d.get("name")
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        tagged.append({
+            "name": name,
+            "evidence": d.get("evidence", ""),
+            "source": "rag",
+            "shown": False,
+            "dismissed": False,
+            "rag_score": d.get("score"),
+        })
+
+    union = [d["name"] for d in tagged]
+
+    return {
+        "llm": llm,
+        "rag": rag,
+        "intersection": inter,
+        "union_names": union,
+        "tagged": tagged,
+    }
 
 
 # バランス思考の提案（7コラム法のバランス思考フェーズでの補助ツール）

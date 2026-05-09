@@ -79,8 +79,14 @@ def progress_ratio(phase: str | None, order: list[str]) -> float:
 
 
 def normalize_distortions(raw) -> list[dict]:
-    """記録の distortions を、旧形式（list[str]）でも新形式（list[dict]）でも
-    [{"name": str, "evidence": str, "dismissed": bool}] に揃える。"""
+    """記録の distortions を、旧形式（list[str]）でも新形式（list[dict]）でも統一形に揃える。
+
+    新フィールド（Phase A）：
+      - source: "llm" | "rag" | "both"（既存データは "llm" 扱い）
+      - shown: ユーザーに表示するか（既存データは True）
+      - dismissed_at: dismiss 時刻（任意）
+      - rag_score: RAG ヒット時のみ（任意）
+    """
     if not raw:
         return []
     items = raw
@@ -92,13 +98,26 @@ def normalize_distortions(raw) -> list[dict]:
     out: list[dict] = []
     for it in items or []:
         if isinstance(it, str):
-            out.append({"name": it, "evidence": "", "dismissed": False})
-        elif isinstance(it, dict) and it.get("name"):
             out.append({
+                "name": it,
+                "evidence": "",
+                "dismissed": False,
+                "source": "llm",
+                "shown": True,
+            })
+        elif isinstance(it, dict) and it.get("name"):
+            d = {
                 "name": str(it["name"]),
                 "evidence": str(it.get("evidence") or ""),
                 "dismissed": bool(it.get("dismissed", False)),
-            })
+                "source": str(it.get("source", "llm")),  # 既存は "llm"
+                "shown": bool(it.get("shown", True)),    # 既存は True
+            }
+            if it.get("dismissed_at"):
+                d["dismissed_at"] = it["dismissed_at"]
+            if it.get("rag_score") is not None:
+                d["rag_score"] = it["rag_score"]
+            out.append(d)
     return out
 
 
@@ -327,6 +346,59 @@ with st.sidebar:
                 st.markdown(f"**両者一致**：{', '.join(inter)}")
             st.caption("採用は当面 LLM 結果。違いを観察して RAG の精度を見ます。")
 
+    # ── 開発者用：A/B 集計（全期間の dismiss 率） ──
+    with st.expander("📊 歪み推定 A/B 集計（dev・全期間）", expanded=False):
+        st.caption(
+            "違和感ボタンで外された割合を source 別に集計。"
+            "数値が低いほど精度が良い（その source の判定が当たっている）。"
+        )
+        if st.button("集計を更新", key="ab_summary_refresh"):
+            try:
+                from storage import get_distortion_ab_summary
+                _summary = get_distortion_ab_summary()
+                st.session_state["_ab_summary_cache"] = _summary
+            except Exception as _e:
+                st.error(f"集計失敗: {_e}")
+
+        _summary = st.session_state.get("_ab_summary_cache")
+        if _summary:
+            st.caption(f"対象レコード数：{_summary.get('total_records', 0)}")
+            _imps = _summary.get("impressions", {})
+            _dis = _summary.get("dismissals", {})
+            _rate = _summary.get("dismiss_rate", {})
+            _rows = []
+            for s in ["llm", "both", "rag"]:
+                if _imps.get(s, 0) > 0:
+                    _rows.append({
+                        "source": {"llm": "LLM 単独", "both": "両者一致", "rag": "RAG 単独（影）"}[s],
+                        "提示": _imps[s],
+                        "違和感": _dis.get(s, 0),
+                        "違和感率": f"{_rate.get(s, 0) * 100:.1f}%",
+                    })
+            if _rows:
+                st.dataframe(pd.DataFrame(_rows), use_container_width=True, hide_index=True)
+            else:
+                st.caption("まだデータが溜まっていません。")
+
+            # パターン別 top
+            _pt = _summary.get("pattern_table", [])
+            _pt_shown = [p for p in _pt if p["shown"] >= 2][:10]  # 2 件以上提示されたもの top10
+            if _pt_shown:
+                st.caption("**パターン別 違和感率（提示2件以上・上位10）**")
+                _pt_rows = [
+                    {
+                        "歪み": p["name"],
+                        "source": p["source"],
+                        "提示": p["shown"],
+                        "違和感": p["dismissed"],
+                        "違和感率": f"{p['rate'] * 100:.1f}%",
+                    }
+                    for p in _pt_shown
+                ]
+                st.dataframe(pd.DataFrame(_pt_rows), use_container_width=True, hide_index=True)
+        else:
+            st.caption("「集計を更新」を押すと最新データを取得します。")
+
 
 # --- メインエリア（サイドバーの選択で切替） ---
 if view == "💬 対話":
@@ -501,21 +573,27 @@ if view == "💬 対話":
                                     with st.spinner("パターンを推定中..."):
                                         # Phase A: LLM と RAG を並走させ、A/B 比較ログを残す
                                         ab = infer_distortions_ab(record)
-                                    dists = ab.get("llm", [])  # 採用は当面 LLM 主
+                                    # tagged 全件を保存（RAG-only も影ログとして残す）
+                                    # UI 表示は shown=True のみに後段でフィルタ
+                                    tagged = ab.get("tagged", [])
                                     st.session_state.last_ab_compare = ab  # サイドバーに表示
-                                    if dists:
-                                        update_distortions(row_id, dists)
-                                        _captured_distortions = dists
+                                    if tagged:
+                                        update_distortions(row_id, tagged)
+                                        # _captured_distortions はユーザー向け表示専用 → shown=True のみ
+                                        _captured_distortions = [d for d in tagged if d.get("shown", True)]
                                 except Exception:
                                     pass  # 推定失敗はサイレントに
 
                             # 対話後のヒント表示用に保存（dict形式に正規化）
                             _normalized = normalize_distortions(_captured_distortions)
-                            # 辞書に存在するパターンのみヒント対象に
+                            # 辞書に存在するパターンのみヒント対象に / RAG-only 影ログは除外
                             st.session_state.last_distortions = [
                                 d for d in _normalized
-                                if d["name"] in DISTORTION_TIPS
-                                or d["name"].startswith("結論の飛躍")
+                                if d.get("shown", True)
+                                and (
+                                    d["name"] in DISTORTION_TIPS
+                                    or d["name"].startswith("結論の飛躍")
+                                )
                             ]
                             # 違和感ボタンで dismiss 反映するために record_id を保持
                             st.session_state.last_record_id = row_id
@@ -584,9 +662,11 @@ if view == "💬 対話":
             if _has_evidence:
                 with st.expander("💭 AIがそう見えた理由（推察・参考まで）", expanded=False):
                     st.caption(
-                        "💡 ピンと来なかったり違和感があれば、無理に当てはめないで構いません。"
+                        "💡 **自分の感覚を一番大事にしてください**。"
+                        "ピンと来なかったり違和感があれば、無理に当てはめなくて大丈夫です。"
                         "右の「違和感」を押すと、その項目を外せます。"
-                        "AIの推察よりも、あなた自身の感覚を信じてください。"
+                        "あなたが押した違和感は、サービスをあなたの感覚に合わせていく"
+                        "ための大事な手がかりにもなります。"
                     )
                     _record_id = st.session_state.get("last_record_id")
                     for i, d in enumerate(_active):
@@ -1054,7 +1134,9 @@ elif view == "📊 傾向を見る":
                         st.write(_ev_against)
 
                     # 歪みをバッジ風に＋根拠（あれば）
-                    _dists = normalize_distortions(row.get("distortions"))
+                    _dists_all = normalize_distortions(row.get("distortions"))
+                    # ユーザー向け表示は shown=True のみ（RAG-only の影ログは除外）
+                    _dists = [d for d in _dists_all if d.get("shown", True)]
                     # 違和感ありで外したものは別扱い
                     _active_dists = [d for d in _dists if not d.get("dismissed")]
                     _dismissed_dists = [d for d in _dists if d.get("dismissed")]
@@ -1068,6 +1150,7 @@ elif view == "📊 傾向を見る":
                                 st.caption(
                                     "💡 違和感があれば「違和感」を押すと外せます。"
                                     "AIの推察より、あなた自身の感覚を信じてください。"
+                                    "押された「違和感」は、サービスをあなたの感覚に合わせていく手がかりにもなります。"
                                 )
                                 for i, d in enumerate(_active_dists):
                                     if not d.get("evidence"):

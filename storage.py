@@ -124,24 +124,114 @@ def dismiss_distortion(record_id: int, distortion_name: str,
         except Exception:
             current = []
         new_list = []
+        _now_iso = now_jst_naive().isoformat()
         for it in current:
             if isinstance(it, dict):
                 d = dict(it)
                 if d.get("name") == distortion_name:
                     d["dismissed"] = dismissed
+                    if dismissed:
+                        d["dismissed_at"] = _now_iso
+                    else:
+                        # 戻すときは時刻クリア
+                        d.pop("dismissed_at", None)
                 new_list.append(d)
             elif isinstance(it, str):
-                new_list.append({
+                d = {
                     "name": it,
                     "evidence": "",
                     "dismissed": dismissed if it == distortion_name else False,
-                })
+                }
+                if it == distortion_name and dismissed:
+                    d["dismissed_at"] = _now_iso
+                new_list.append(d)
         conn.execute(upd, {
             "distortions": json.dumps(new_list, ensure_ascii=False),
             "id": record_id,
             "user_id": user_id,
         })
         return 1
+
+
+def get_distortion_ab_summary(user_id: str | None = None) -> dict:
+    """全レコードを走査して、source ごとの impression / dismiss 数を集計。
+
+    Phase A の A/B 観察用。LLM 単独 / RAG 単独（影ログ）/ 両者一致 で
+    違和感率の差を見る。
+
+    Returns:
+        {
+          "impressions": {"llm": N, "both": N, "rag": N},   # 件数（重複あり）
+          "dismissals": {"llm": N, "both": N, "rag": N},
+          "dismiss_rate": {"llm": 0.xx, "both": 0.xx, "rag": 0.xx},
+          "pattern_table": [
+            {"source": "llm", "name": "...", "shown": N, "dismissed": N, "rate": 0.xx}
+          ],
+          "total_records": N,
+        }
+    """
+    if user_id is None:
+        user_id = _owner_user_id()
+
+    sel = text("""
+        SELECT distortions FROM cbt_thought_records
+        WHERE user_id = :uid AND distortions IS NOT NULL
+    """)
+    impressions: dict[str, int] = {"llm": 0, "both": 0, "rag": 0}
+    dismissals: dict[str, int] = {"llm": 0, "both": 0, "rag": 0}
+    pattern_counts: dict[tuple[str, str], dict] = {}  # (source, name) -> {"shown", "dismissed"}
+    total_records = 0
+
+    with get_engine().begin() as conn:
+        rows = conn.execute(sel, {"uid": user_id}).fetchall()
+
+    for row in rows:
+        try:
+            dists = json.loads(row[0] or "[]")
+        except Exception:
+            continue
+        total_records += 1
+        for d in dists:
+            if not isinstance(d, dict):
+                continue
+            name = d.get("name")
+            if not name:
+                continue
+            source = d.get("source", "llm")  # 既存データは "llm" 扱い（後方互換）
+            if source not in impressions:
+                continue
+            impressions[source] += 1
+            key = (source, name)
+            pattern_counts.setdefault(key, {"shown": 0, "dismissed": 0})
+            pattern_counts[key]["shown"] += 1
+            if d.get("dismissed"):
+                dismissals[source] += 1
+                pattern_counts[key]["dismissed"] += 1
+
+    dismiss_rate = {
+        s: (dismissals[s] / impressions[s] if impressions[s] else 0.0)
+        for s in impressions
+    }
+
+    pattern_table = [
+        {
+            "source": s,
+            "name": n,
+            "shown": v["shown"],
+            "dismissed": v["dismissed"],
+            "rate": (v["dismissed"] / v["shown"]) if v["shown"] else 0.0,
+        }
+        for (s, n), v in pattern_counts.items()
+    ]
+    pattern_table.sort(key=lambda x: (-x["shown"], x["source"], x["name"]))
+
+    return {
+        "impressions": impressions,
+        "dismissals": dismissals,
+        "dismiss_rate": dismiss_rate,
+        "pattern_table": pattern_table,
+        "total_records": total_records,
+    }
 
 
 # 編集可能なフィールド一覧（DBカラム名と一致）
