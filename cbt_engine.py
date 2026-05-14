@@ -269,8 +269,11 @@ def infer_distortions_ab(record: dict) -> dict:
         }
     """
     llm = infer_distortions_from_record(record)
+    # RAG は top_k=5 まで取る（A/B「両者一致」の検出精度を上げるため）。
+    # 表示は依然として LLM 採用結果のみ。RAG-only は影ログ。
     rag, rag_raw, rag_error = infer_distortions_via_rag(
         record.get("automatic_thought", ""),
+        top_k=5,
         return_raw=True,
     )
     llm_names = [d.get("name") for d in llm if d.get("name")]
