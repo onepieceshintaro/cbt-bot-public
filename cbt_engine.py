@@ -189,20 +189,34 @@ def infer_distortions_from_record(record: dict) -> list[dict]:
 _RAG_MIN_SCORE = 0.10
 
 
-def infer_distortions_via_rag(automatic_thought: str, top_k: int = 3) -> list[dict]:
+def infer_distortions_via_rag(
+    automatic_thought: str,
+    top_k: int = 3,
+    *,
+    return_raw: bool = False,
+):
     """自動思考の意味検索で類似歪みを返す（フェイルセーフ）。
 
-    返り値: [{"name": "...", "evidence": "意味的に近い", "score": 0.xx}, ...]
-    - DISTORTION_PATTERNS に含まれる正規名のみ（親カテゴリ「結論の飛躍」は除外）
-    - 失敗時は []
+    返り値:
+      - return_raw=False（既定）: list[dict] — 閾値・辞書整合フィルタ通過後
+      - return_raw=True: (list[dict], list[dict]) — (フィルタ後, 生スコア全件)
+        生スコアは閾値・辞書整合に関係なく **全候補** を返す（デバッグ用）
+
+    各 dict: {"name": "...", "evidence": "...", "score": 0.xx}
     """
     if not automatic_thought or not automatic_thought.strip():
-        return []
+        return ([], []) if return_raw else []
     try:
         from rag.distortion_index import find_similar_distortions
         hits = find_similar_distortions(automatic_thought, top_k=max(top_k * 2, 5))
     except Exception:
-        return []
+        return ([], []) if return_raw else []
+
+    raw: list[dict] = [
+        {"name": h.get("name", ""), "score": float(h.get("score", 0.0))}
+        for h in hits
+    ]
+
     out: list[dict] = []
     seen: set[str] = set()
     for h in hits:
@@ -222,7 +236,7 @@ def infer_distortions_via_rag(automatic_thought: str, top_k: int = 3) -> list[di
         })
         if len(out) >= top_k:
             break
-    return out
+    return (out, raw) if return_raw else out
 
 
 def infer_distortions_ab(record: dict) -> dict:
@@ -247,7 +261,10 @@ def infer_distortions_ab(record: dict) -> dict:
         }
     """
     llm = infer_distortions_from_record(record)
-    rag = infer_distortions_via_rag(record.get("automatic_thought", ""))
+    rag, rag_raw = infer_distortions_via_rag(
+        record.get("automatic_thought", ""),
+        return_raw=True,
+    )
     llm_names = [d.get("name") for d in llm if d.get("name")]
     rag_names = [d.get("name") for d in rag if d.get("name")]
     inter = [n for n in llm_names if n in rag_names]
@@ -296,6 +313,8 @@ def infer_distortions_ab(record: dict) -> dict:
     return {
         "llm": llm,
         "rag": rag,
+        "rag_raw": rag_raw,                 # 閾値・辞書フィルタ前の全候補（デバッグ用）
+        "rag_threshold": _RAG_MIN_SCORE,    # 現在の閾値
         "intersection": inter,
         "union_names": union,
         "tagged": tagged,

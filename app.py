@@ -335,6 +335,9 @@ with st.sidebar:
             st.caption("LLM 版（Haiku, evidence 付き）と RAG 版（Voyage 意味検索）を並走中。")
             _llm_names = [d.get("name", "") for d in _ab.get("llm", [])]
             _rag_items = _ab.get("rag", [])
+            _rag_raw = _ab.get("rag_raw", [])
+            _threshold = float(_ab.get("rag_threshold", 0.10))
+
             st.markdown(f"**LLM (Haiku)**：{', '.join(_llm_names) or '（なし）'}")
             if _rag_items:
                 _rag_lines = [f"{d['name']} ({d.get('score', 0):.2f})" for d in _rag_items]
@@ -344,6 +347,29 @@ with st.sidebar:
             inter = _ab.get("intersection", [])
             if inter:
                 st.markdown(f"**両者一致**：{', '.join(inter)}")
+
+            # 生スコア全件（閾値前）
+            st.markdown(f"---\n**RAG 全候補**（現在の閾値 ≥ **{_threshold:.2f}**）")
+            if not _rag_raw:
+                st.caption(
+                    "RAG から候補が1件も返っていません。"
+                    "VOYAGE_API_KEY 未設定 / インデックス未構築 / レート制限の可能性。"
+                )
+            else:
+                from cbt_engine import DISTORTION_PATTERNS as _DP
+                for h in _rag_raw:
+                    _passed = h["score"] >= _threshold
+                    _in_dict = h["name"] in _DP
+                    if _passed and _in_dict:
+                        _mark = "✅ 採用"
+                    elif _passed and not _in_dict:
+                        _mark = "⚠️ 閾値↑だが辞書外（親カテゴリ等）"
+                    else:
+                        _mark = "✗ 閾値↓"
+                    st.markdown(
+                        f"- {_mark}　**{h['name']}**：score = **{h['score']:.3f}**"
+                    )
+
             st.caption("採用は当面 LLM 結果。違いを観察して RAG の精度を見ます。")
 
     # ── 開発者用：A/B 集計（全期間の dismiss 率） ──
