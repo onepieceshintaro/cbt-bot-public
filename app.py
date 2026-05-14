@@ -97,6 +97,8 @@ def normalize_distortions(raw) -> list[dict]:
             return []
     out: list[dict] = []
     for it in items or []:
+        if isinstance(it, dict) and it.get("_meta"):
+            continue  # メタデータは distortions として扱わない
         if isinstance(it, str):
             out.append({
                 "name": it,
@@ -726,6 +728,64 @@ if view == "💬 対話":
                                     st.rerun()
                                 except Exception as e:
                                     st.warning(f"外す処理に失敗: {e}")
+            # ── 他の見方も見てみる（RAG-only の影ログを能動的に展開）──
+            # Purpose（新しい視点・選択肢を増やす）に直結する仕組み。
+            # 開いた時点で `other_views_opened` イベントを記録（positive engagement シグナル）。
+            _ab_for_other = st.session_state.get("last_ab_compare")
+            _record_id_for_other = st.session_state.get("last_record_id")
+            _rag_only_items = []
+            if _ab_for_other:
+                for item in _ab_for_other.get("tagged", []):
+                    if item.get("source") == "rag" and not item.get("shown", True):
+                        _rag_only_items.append(item)
+            if _rag_only_items and _record_id_for_other:
+                _show_key = f"_show_other_views_{_record_id_for_other}"
+                _logged_key = f"_logged_other_views_{_record_id_for_other}"
+                if _show_key not in st.session_state:
+                    st.session_state[_show_key] = False
+                _label = "🌿 他の見方も見てみる" if not st.session_state[_show_key] else "🌿 閉じる"
+                if st.button(_label, key=f"btn{_show_key}",
+                             help="LLM が拾わなかった、意味的に近い他の候補（参考まで）"):
+                    _was_open = st.session_state[_show_key]
+                    st.session_state[_show_key] = not _was_open
+                    # 初回オープン時のみログ
+                    if not _was_open and not st.session_state.get(_logged_key):
+                        try:
+                            from storage import log_engagement
+                            log_engagement(_record_id_for_other, "other_views_opened")
+                            st.session_state[_logged_key] = True
+                        except Exception:
+                            pass
+                    st.rerun()
+                if st.session_state[_show_key]:
+                    st.caption(
+                        "💭 LLM が拾わなかったけれど、意味的に近そうな候補です。"
+                        "「これかも」と感じたら参考に、ピンと来なければスルーで大丈夫です。"
+                    )
+                    for _i, _d in enumerate(_rag_only_items):
+                        _c1, _c2 = st.columns([5, 1])
+                        with _c1:
+                            _score = _d.get("rag_score") or _d.get("score") or 0
+                            try:
+                                _score = float(_score)
+                            except Exception:
+                                _score = 0.0
+                            st.markdown(f"**{_d['name']}**")
+                            st.caption(f"意味検索で類似（score = {_score:.2f}）")
+                        with _c2:
+                            if st.button(
+                                "違和感",
+                                key=f"dismiss_other_{_record_id_for_other}_{_i}_{_d['name']}",
+                                help="この候補を外します",
+                            ):
+                                from storage import dismiss_distortion
+                                try:
+                                    dismiss_distortion(_record_id_for_other, _d["name"], True)
+                                    st.toast("外しました", icon="🌿")
+                                    st.rerun()
+                                except Exception as _e:
+                                    st.warning(f"外す処理に失敗: {_e}")
+
             # 全部 dismiss されたらヒント表示は出さない
             if not _active:
                 pass
@@ -1208,6 +1268,60 @@ elif view == "📊 傾向を見る":
                     elif _dists and not _active_dists:
                         # 全部 dismissed
                         st.caption("（AIが推測した歪みは、すべて違和感ありとして外されています）")
+
+                    # ── 他の見方も見てみる（RAG-only 影ログ）──
+                    _rag_only_past = [
+                        d for d in _dists_all
+                        if d.get("source") == "rag"
+                        and not d.get("shown", True)
+                        and not d.get("dismissed")
+                    ]
+                    if _rag_only_past and _row_id is not None:
+                        _show_key_past = f"_show_other_views_past_{_row_id}"
+                        _logged_key_past = f"_logged_other_views_past_{_row_id}"
+                        if _show_key_past not in st.session_state:
+                            st.session_state[_show_key_past] = False
+                        _label_past = "🌿 他の見方も見てみる" if not st.session_state[_show_key_past] else "🌿 閉じる"
+                        if st.button(_label_past, key=f"btn{_show_key_past}",
+                                     help="LLM が拾わなかった、意味的に近い他の候補（参考まで）"):
+                            _was_open = st.session_state[_show_key_past]
+                            st.session_state[_show_key_past] = not _was_open
+                            if not _was_open and not st.session_state.get(_logged_key_past):
+                                try:
+                                    from storage import log_engagement
+                                    log_engagement(_row_id, "other_views_opened")
+                                    st.session_state[_logged_key_past] = True
+                                except Exception:
+                                    pass
+                            st.rerun()
+                        if st.session_state[_show_key_past]:
+                            st.caption(
+                                "💭 LLM が拾わなかったけれど、意味的に近そうな候補です。"
+                                "「これかも」と感じたら参考に、ピンと来なければスルーで大丈夫です。"
+                            )
+                            for _i, _d in enumerate(_rag_only_past):
+                                _c1, _c2 = st.columns([5, 1])
+                                with _c1:
+                                    _score = _d.get("rag_score") or _d.get("score") or 0
+                                    try:
+                                        _score = float(_score)
+                                    except Exception:
+                                        _score = 0.0
+                                    st.markdown(f"**{_d['name']}**")
+                                    st.caption(f"意味検索で類似（score = {_score:.2f}）")
+                                with _c2:
+                                    if st.button(
+                                        "違和感",
+                                        key=f"dismiss_other_past_{_row_id}_{_i}_{_d['name']}",
+                                        help="この候補を外します",
+                                    ):
+                                        from storage import dismiss_distortion
+                                        try:
+                                            dismiss_distortion(_row_id, _d["name"], True)
+                                            st.toast("外しました", icon="🌿")
+                                            st.rerun()
+                                        except Exception as _e:
+                                            st.warning(f"外す処理に失敗: {_e}")
 
                     # 違和感で外したものを「戻す」導線（折りたたみ）
                     if _dismissed_dists and _row_id is not None:

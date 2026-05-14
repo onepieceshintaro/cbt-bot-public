@@ -127,11 +127,17 @@ def dismiss_distortion(record_id: int, distortion_name: str,
         _now_iso = now_jst_naive().isoformat()
         for it in current:
             if isinstance(it, dict):
+                # _meta sentinel はそのまま保持（dismiss 対象ではない）
+                if it.get("_meta"):
+                    new_list.append(it)
+                    continue
                 d = dict(it)
                 if d.get("name") == distortion_name:
                     d["dismissed"] = dismissed
                     if dismissed:
                         d["dismissed_at"] = _now_iso
+                        # 違和感を押した時点で「ユーザーに見られた」とみなす
+                        d["shown"] = True
                     else:
                         # 戻すときは時刻クリア
                         d.pop("dismissed_at", None)
@@ -151,6 +157,63 @@ def dismiss_distortion(record_id: int, distortion_name: str,
             "user_id": user_id,
         })
         return 1
+
+
+def log_engagement(record_id: int, event_name: str,
+                   user_id: str | None = None) -> int:
+    """ユーザーの engagement イベントを記録に追記する（Phase A・C 用）。
+
+    event_name の例:
+      - "other_views_opened" : 「他の見方も見てみる」を開いた
+      - "evidence_viewed"    : evidence エキスパンダーを能動的に開いた（任意）
+
+    実装：cbt_thought_records.distortions JSON の中に
+        {"_meta": True, "events": {event_name: iso_timestamp, ...}}
+    という sentinel item として保存する。スキーマ変更を回避。
+
+    同じイベントは**初回タイムスタンプを保持**（多重クリックで上書きしない）。
+    """
+    if user_id is None:
+        user_id = _owner_user_id()
+    sel = text("""
+        SELECT distortions FROM cbt_thought_records
+        WHERE id = :id AND user_id = :user_id
+    """)
+    upd = text("""
+        UPDATE cbt_thought_records SET distortions = :distortions
+        WHERE id = :id AND user_id = :user_id
+    """)
+    iso_now = now_jst_naive().isoformat()
+    with get_engine().begin() as conn:
+        row = conn.execute(sel, {"id": record_id, "user_id": user_id}).first()
+        if not row:
+            return 0
+        try:
+            current = json.loads(row[0] or "[]")
+        except Exception:
+            current = []
+
+        meta = None
+        for it in current:
+            if isinstance(it, dict) and it.get("_meta"):
+                meta = it
+                break
+        if meta is None:
+            meta = {"_meta": True, "events": {}}
+            current.append(meta)
+        else:
+            meta.setdefault("events", {})
+
+        # 初回のみ記録（多重クリックの上書き防止）
+        if event_name not in meta["events"]:
+            meta["events"][event_name] = iso_now
+
+        conn.execute(upd, {
+            "distortions": json.dumps(current, ensure_ascii=False),
+            "id": record_id,
+            "user_id": user_id,
+        })
+    return 1
 
 
 def get_distortion_ab_summary(user_id: str | None = None) -> dict:
@@ -194,6 +257,8 @@ def get_distortion_ab_summary(user_id: str | None = None) -> dict:
         for d in dists:
             if not isinstance(d, dict):
                 continue
+            if d.get("_meta"):
+                continue  # メタ情報は集計対象外
             name = d.get("name")
             if not name:
                 continue
