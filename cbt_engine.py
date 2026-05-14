@@ -188,6 +188,68 @@ def infer_distortions_from_record(record: dict) -> list[dict]:
 # 実データのスコア分布を観察したうえで、辞書テキスト拡充 or 閾値再調整を判断する。
 _RAG_MIN_SCORE = 0.10
 
+# ──────────────────────────────────────────────
+# Phase B-α / β：過去の自動思考の Self-RAG（しきい値ゲート付き）
+# ──────────────────────────────────────────────
+# UI 表示のしきい値（記録数）。これ未満は何も出さない（cold-start 対策）。
+# 50 件付近で本格運用、100 件で本領発揮。
+_PHASE_B_MIN_RECORDS = 30
+# 類似スコアの最低値（cosine 類似度）
+_PHASE_B_MIN_SCORE = 0.30
+# 「最近すぎる」とみなす日数（これ以下は除外、Phase B の感動が出ない）
+_PHASE_B_MIN_DAYS_OLD = 14
+
+
+def is_phase_b_unlocked(user_id: str) -> bool:
+    """このユーザーで Phase B（過去類似記録の表示）を解放してよいか。
+    記録数しきい値ベース。フェイルセーフ：失敗時は False。
+    """
+    if not user_id:
+        return False
+    try:
+        from storage import get_user_record_count
+        return get_user_record_count(user_id) >= _PHASE_B_MIN_RECORDS
+    except Exception:
+        return False
+
+
+def infer_similar_past_records(
+    user_id: str,
+    automatic_thought: str,
+    *,
+    exclude_record_id: int | None = None,
+    top_k: int = 3,
+):
+    """過去の似た自動思考を返す（フェイルセーフ）。
+
+    Phase B のメイン関数。コールドスタート（chromadb 空）の場合は
+    DB から自動再構築する。
+
+    Returns:
+        list[dict]: [{"record_id", "created_at", "text", "score", "age_days"}, ...]
+        条件未達やエラー時は空リスト。
+    """
+    if not user_id:
+        return []
+    try:
+        from rag.records_index import find_similar_past_records, ensure_user_indexed
+        from storage import list_records_for_indexing
+        # コールドスタート対策：コレクションが空ならバルク投入
+        try:
+            ensure_user_indexed(user_id, list_records_for_indexing(user_id))
+        except Exception:
+            pass
+        return find_similar_past_records(
+            user_id=user_id,
+            automatic_thought=automatic_thought,
+            top_k=top_k,
+            min_days_old=_PHASE_B_MIN_DAYS_OLD,
+            min_score=_PHASE_B_MIN_SCORE,
+            exclude_record_id=exclude_record_id,
+        )
+    except Exception:
+        return []
+
 
 def infer_distortions_via_rag(
     automatic_thought: str,

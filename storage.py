@@ -76,7 +76,57 @@ def save_record(
     """)
     with get_engine().begin() as conn:
         row = conn.execute(sql, params).first()
-        return int(row[0])
+        new_id = int(row[0])
+
+    # Phase B-α: 自動思考をベクタ DB に投入（UI 表示はしきい値で別途ゲート）
+    # 失敗してもアプリは止めない。
+    try:
+        from rag.records_index import index_record
+        index_record(
+            user_id=user_id,
+            record_id=new_id,
+            automatic_thought=record.get("automatic_thought") or "",
+            created_at=params["created_at"],
+        )
+    except Exception:
+        pass
+
+    return new_id
+
+
+def get_user_record_count(user_id: str | None = None) -> int:
+    """ユーザーの記録総数。Phase B しきい値判定用。"""
+    if user_id is None:
+        user_id = _owner_user_id()
+    sql = text(
+        "SELECT COUNT(*) FROM cbt_thought_records WHERE user_id = :uid"
+    )
+    try:
+        with get_engine().connect() as conn:
+            row = conn.execute(sql, {"uid": user_id}).first()
+        return int(row[0]) if row else 0
+    except Exception:
+        return 0
+
+
+def list_records_for_indexing(user_id: str | None = None) -> list[tuple]:
+    """埋め込み再構築用に (id, automatic_thought, created_at) を全件返す。
+    Streamlit Cloud のエフェメラル領域からの復元に使う。
+    """
+    if user_id is None:
+        user_id = _owner_user_id()
+    sql = text("""
+        SELECT id, automatic_thought, created_at
+        FROM cbt_thought_records
+        WHERE user_id = :uid AND automatic_thought IS NOT NULL
+        ORDER BY id ASC
+    """)
+    try:
+        with get_engine().connect() as conn:
+            rows = conn.execute(sql, {"uid": user_id}).fetchall()
+        return [(int(r[0]), str(r[1] or ""), str(r[2] or "")) for r in rows]
+    except Exception:
+        return []
 
 
 def update_distortions(record_id: int, distortions: list,

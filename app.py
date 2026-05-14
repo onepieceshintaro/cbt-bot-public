@@ -10,6 +10,7 @@ import plotly.express as px
 from cbt_engine import (
     chat, assess_risk, client as anthropic_client,
     infer_distortions_from_record, infer_distortions_ab, suggest_balanced_thoughts,
+    is_phase_b_unlocked, infer_similar_past_records,
 )
 from storage import (
     init_db, save_record, load_records, update_distortions, update_record,
@@ -785,6 +786,50 @@ if view == "💬 対話":
                                     st.rerun()
                                 except Exception as _e:
                                     st.warning(f"外す処理に失敗: {_e}")
+
+            # ── Phase B：過去の似た記録（しきい値で gating）──
+            # 記録 30 件未満では UI 自体を表示しない（cold-start 期間の沈黙）
+            _record_id_pb = st.session_state.get("last_record_id")
+            if CURRENT_USER_ID and is_phase_b_unlocked(CURRENT_USER_ID):
+                _last_at = ""
+                _saved_record = st.session_state.get("last_saved_record") or {}
+                _at_text = str(_saved_record.get("automatic_thought") or "")
+                _similar_past = infer_similar_past_records(
+                    user_id=CURRENT_USER_ID,
+                    automatic_thought=_at_text,
+                    exclude_record_id=_record_id_pb,
+                    top_k=3,
+                )
+                if _similar_past:
+                    _pb_key = f"_show_phase_b_{_record_id_pb}"
+                    if _pb_key not in st.session_state:
+                        st.session_state[_pb_key] = False
+                    _pb_label = (
+                        "🪞 過去の似た記録を見てみる"
+                        if not st.session_state[_pb_key]
+                        else "🪞 閉じる"
+                    )
+                    if st.button(
+                        _pb_label, key=f"btn{_pb_key}",
+                        help="意味的に近い過去の自動思考（参考まで・判定ではありません）",
+                    ):
+                        st.session_state[_pb_key] = not st.session_state[_pb_key]
+                        st.rerun()
+                    if st.session_state[_pb_key]:
+                        st.caption(
+                            "💭 過去の自分が、似た言葉を使っていた記録です。"
+                            "「**気付きの鏡**」として眺めるだけで十分。"
+                            "似てないと感じたらスルーで大丈夫です。"
+                        )
+                        for _p in _similar_past:
+                            _created = _p.get("created_at", "")[:10]
+                            _days = _p.get("age_days", 0)
+                            _score = _p.get("score", 0.0)
+                            with st.container():
+                                st.markdown(
+                                    f"**{_created}**　（{_days}日前・似てる度 {_score:.2f}）"
+                                )
+                                st.markdown(f"> {_p.get('text', '')}")
 
             # 全部 dismiss されたらヒント表示は出さない
             if not _active:
