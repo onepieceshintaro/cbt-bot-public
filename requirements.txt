@@ -8,3 +8,7 @@ psycopg2-binary>=2.9
 # Phase A: Distortion Pattern RAG
 chromadb>=0.5,<0.6
 voyageai>=0.2
+# chromadb / opentelemetry の _pb2.py 生成コードが protobuf 6.x 系の新 API と
+# 不整合（Streamlit Cloud で TypeError: Descriptors cannot be created directly）。
+# protobuf 5.x 以下に固定して回避。streamlit 1.57 の制約（<8,>=3.20）内。
+protobuf<6
