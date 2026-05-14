@@ -184,7 +184,9 @@ def infer_distortions_from_record(record: dict) -> list[dict]:
 # LLM 版（Haiku で全記録を見て選び evidence も付ける）と並走させ、A/B 比較する。
 
 # RAG ヒットを採用する閾値（cosine 類似度 = 1 - cosine_distance）
-_RAG_MIN_SCORE = 0.20
+# 2026-05-11 0.20 → 0.10：初期運用で RAG 候補がほぼ出てこなかったため緩和。
+# 実データのスコア分布を観察したうえで、辞書テキスト拡充 or 閾値再調整を判断する。
+_RAG_MIN_SCORE = 0.10
 
 
 def infer_distortions_via_rag(automatic_thought: str, top_k: int = 3) -> list[dict]:
