@@ -199,18 +199,26 @@ def infer_distortions_via_rag(
 
     返り値:
       - return_raw=False（既定）: list[dict] — 閾値・辞書整合フィルタ通過後
-      - return_raw=True: (list[dict], list[dict]) — (フィルタ後, 生スコア全件)
-        生スコアは閾値・辞書整合に関係なく **全候補** を返す（デバッグ用）
+      - return_raw=True: (filtered, raw, error) の3-tuple
+          filtered: 閾値・辞書フィルタ通過後 list[dict]
+          raw     : フィルタ前の全候補 list[dict]
+          error   : 例外発生時の "TypeName: message" 文字列、なければ None
 
     各 dict: {"name": "...", "evidence": "...", "score": 0.xx}
     """
     if not automatic_thought or not automatic_thought.strip():
-        return ([], []) if return_raw else []
+        return ([], [], None) if return_raw else []
     try:
         from rag.distortion_index import find_similar_distortions
         hits = find_similar_distortions(automatic_thought, top_k=max(top_k * 2, 5))
-    except Exception:
-        return ([], []) if return_raw else []
+    except Exception as e:
+        # デバッグ用にエラー情報を残す（フェイルセーフは維持＝呼び出し側はクラッシュしない）
+        import traceback
+        error_info = f"{type(e).__name__}: {e}"
+        # Streamlit Cloud のログにも出す
+        print(f"[RAG ERROR] {error_info}")
+        print(traceback.format_exc())
+        return ([], [], error_info) if return_raw else []
 
     raw: list[dict] = [
         {"name": h.get("name", ""), "score": float(h.get("score", 0.0))}
@@ -236,7 +244,7 @@ def infer_distortions_via_rag(
         })
         if len(out) >= top_k:
             break
-    return (out, raw) if return_raw else out
+    return (out, raw, None) if return_raw else out
 
 
 def infer_distortions_ab(record: dict) -> dict:
@@ -261,7 +269,7 @@ def infer_distortions_ab(record: dict) -> dict:
         }
     """
     llm = infer_distortions_from_record(record)
-    rag, rag_raw = infer_distortions_via_rag(
+    rag, rag_raw, rag_error = infer_distortions_via_rag(
         record.get("automatic_thought", ""),
         return_raw=True,
     )
@@ -315,6 +323,7 @@ def infer_distortions_ab(record: dict) -> dict:
         "rag": rag,
         "rag_raw": rag_raw,                 # 閾値・辞書フィルタ前の全候補（デバッグ用）
         "rag_threshold": _RAG_MIN_SCORE,    # 現在の閾値
+        "rag_error": rag_error,             # 例外発生時のエラー情報（デバッグ用）
         "intersection": inter,
         "union_names": union,
         "tagged": tagged,

@@ -350,12 +350,19 @@ with st.sidebar:
 
             # 生スコア全件（閾値前）
             st.markdown(f"---\n**RAG 全候補**（現在の閾値 ≥ **{_threshold:.2f}**）")
-            if not _rag_raw:
+            _rag_error = _ab.get("rag_error")
+            if _rag_error:
+                st.error(f"⚠️ RAG エラー: `{_rag_error}`")
+                st.caption(
+                    "→ Streamlit Cloud の **Manage app → Logs** で "
+                    "`[RAG ERROR]` を含む行を探すと、より詳細なスタックトレースが見えます。"
+                )
+            if not _rag_raw and not _rag_error:
                 st.caption(
                     "RAG から候補が1件も返っていません。"
                     "VOYAGE_API_KEY 未設定 / インデックス未構築 / レート制限の可能性。"
                 )
-            else:
+            elif _rag_raw:
                 from cbt_engine import DISTORTION_PATTERNS as _DP
                 for h in _rag_raw:
                     _passed = h["score"] >= _threshold
