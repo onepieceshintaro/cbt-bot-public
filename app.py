@@ -16,8 +16,6 @@ from storage import (
     init_db, save_record, load_records, update_distortions, update_record,
     save_weekly_report, load_weekly_report, load_all_weekly_reports,
     save_risk_score, load_risk_scores,
-    save_stress_source, load_stress_sources, delete_stress_source,
-    save_nonverbal_memo, load_nonverbal_memos, delete_nonverbal_memo,
 )
 from prompts import (
     CRISIS_RESPONSE, MODE_CONFIGS, DEFAULT_MODE,
@@ -890,248 +888,32 @@ if view == "💬 対話":
                 key="btn_new_session_inline",
             )
 
+
 elif view == "🌱 言葉にする":
     # =====================================================
-    # Phase 1：気づき — 仕事ストレス源チェックリスト + 言葉にできないメモ
-    # =====================================================
-    # 「言葉にできない」状態こそ Phase 1 の本質。書ける前提の UI は罠。
-    # チェックボックスと絵文字選択で、書けなくても残せる導線を用意する。
+    # この機能は 🗺️ 自分マップ（self-map）に移設されました。
+    # 「自分を整理するツール群」として self-map に集約し、CBT は対話・
+    # 思考整理に専念。ここでは self-map へのクロスリンクのみ提示する。
     # =====================================================
     st.markdown("### 🌱 言葉にする")
+    st.info(
+        "この機能は **🗺️ 自分マップ** に移動しました。\n\n"
+        "「自分を整理するツール群」を self-map に集約しています。"
+        "🧩 仕事のしんどさチェックリスト と 🌫️ 言葉にできないこと（メモ）は、"
+        "自分マップ側で引き続き使えます。"
+    )
+    _selfmap_url = "https://self-map-public-cwdyf34nskswtaw2jwvylp.streamlit.app/"
+    if CURRENT_USER_ID:
+        _selfmap_url += f"?u={CURRENT_USER_ID}"
+    st.link_button(
+        "🗺️ 自分マップを開く（🌱 言葉にする へ）",
+        _selfmap_url,
+        use_container_width=True,
+    )
     st.caption(
-        "**「何にしんどさを感じているか」** を言葉にする場所です。"
-        "対話に進む前の整理にも、対話の代わりにもどうぞ。"
+        "**CBT は対話で思考を整える場**、**自分マップは記録で自分を整理する場**。"
+        "役割を分けることで、それぞれをシンプルに保っています。"
     )
-
-    _phase1_tab = st.radio(
-        "切り替え",
-        ["🧩 仕事のしんどさ：チェックリスト", "🌫️ 言葉にできないこと（メモ）"],
-        label_visibility="collapsed",
-        horizontal=True,
-        key="phase1_tab",
-    )
-
-    # ---------- 1. 仕事ストレス源チェックリスト ----------
-    if _phase1_tab == "🧩 仕事のしんどさ：チェックリスト":
-        STRESS_CATEGORIES = {
-            "仕事の量・働き方": [
-                "業務量が多すぎる・過負荷",
-                "残業・休日出勤が多い",
-                "急な変更・割り込みが多い",
-                "期限のプレッシャー",
-            ],
-            "役割・職務": [
-                "自分の役割が曖昧",
-                "やりたい仕事とのズレ",
-                "スキルが追いついていない感",
-                "評価されない感",
-            ],
-            "人間関係": [
-                "上司との関係",
-                "同僚との関係",
-                "顧客・取引先との関係",
-                "コミュニケーションの負担",
-            ],
-            "制度・評価・処遇": [
-                "評価制度への不満",
-                "給与・処遇への不満",
-                "キャリアパスが見えない",
-            ],
-            "価値観・将来": [
-                "会社・組織との価値観ズレ",
-                "将来への不安",
-                "仕事の意味を感じない",
-            ],
-            "環境・生活": [
-                "通勤・職場環境",
-                "リモートワークの孤独",
-                "家庭・育児との両立",
-            ],
-        }
-
-        st.caption(
-            "**当てはまるものをチェック**。何個でも OK。"
-            "全部空欄でも「今日はそういう日だった」として保存できます。"
-        )
-
-        with st.form("stress_source_form", clear_on_submit=True):
-            _selected: list[str] = []
-            for _cat, _opts in STRESS_CATEGORIES.items():
-                st.markdown(f"**{_cat}**")
-                _cols = st.columns(2)
-                for _i, _opt in enumerate(_opts):
-                    with _cols[_i % 2]:
-                        if st.checkbox(_opt, key=f"ss_{_opt}"):
-                            _selected.append(_opt)
-                st.write("")  # ちょい余白
-
-            _free_note = st.text_area(
-                "他にあれば（任意）",
-                placeholder="チェックリストに無い言葉で出てきたものがあれば。書けなくても OK",
-                height=80,
-            )
-
-            _submit = st.form_submit_button(
-                "💾 記録する", use_container_width=True,
-            )
-            if _submit:
-                try:
-                    save_stress_source(
-                        sources=_selected,
-                        free_note=_free_note,
-                        user_id=CURRENT_USER_ID,
-                    )
-                    st.success(
-                        f"記録しました（{len(_selected)} 項目"
-                        f"{ '＋自由記述' if _free_note.strip() else '' }）"
-                    )
-                except Exception as _e:
-                    st.warning(f"保存に失敗：{_e}")
-
-        # 履歴表示
-        st.divider()
-        st.markdown("#### 📚 これまでの記録")
-        try:
-            _df_ss = load_stress_sources(user_id=CURRENT_USER_ID, limit=30)
-            if _df_ss.empty:
-                st.caption("まだ記録はありません。上のフォームから 1 件目を残せます。")
-            else:
-                st.caption(
-                    "**自分が書いた言葉**が並びます。判定や評価はなし。"
-                    "「何が積もっているか」を眺める材料として。"
-                )
-                for _, _row in _df_ss.iterrows():
-                    try:
-                        _dt = pd.to_datetime(_row["created_at"])
-                        _dt_str = _dt.strftime("%m/%d %H:%M")
-                    except Exception:
-                        _dt_str = str(_row["created_at"])
-                    try:
-                        _sources_list = json.loads(_row["sources"] or "[]")
-                    except Exception:
-                        _sources_list = []
-                    with st.expander(
-                        f"📝 {_dt_str}（{len(_sources_list)} 項目）",
-                        expanded=False,
-                    ):
-                        if _sources_list:
-                            for _s in _sources_list:
-                                st.markdown(f"- {_s}")
-                        if _row.get("free_note"):
-                            st.markdown(f"**自由記述**：{_row['free_note']}")
-                        if st.button(
-                            "🗑️ 削除", key=f"del_ss_{_row['id']}",
-                        ):
-                            try:
-                                delete_stress_source(
-                                    int(_row["id"]),
-                                    user_id=CURRENT_USER_ID,
-                                )
-                                st.rerun()
-                            except Exception as _e:
-                                st.warning(f"削除失敗：{_e}")
-        except Exception as _e:
-            st.caption(f"履歴の読み込みでエラー：{_e}")
-
-    # ---------- 2. 言葉にできないこと（メモ） ----------
-    else:
-        STATE_MARKERS = [
-            ("🌫️", "ぼんやり"),
-            ("🌧️", "どんより"),
-            ("🌪️", "ぐちゃぐちゃ"),
-            ("😶", "言葉にならない"),
-            ("😞", "ちょっとつらい"),
-            ("💢", "イライラ"),
-            ("🥱", "だるい・無気力"),
-            ("💧", "涙が出る"),
-            ("🫥", "何も感じない"),
-            ("🔥", "燃え尽き感"),
-        ]
-
-        st.caption(
-            "**書けない日**もあります。絵文字を 1 つ選ぶだけでも記録になります。"
-            "自由記述は書きたい時だけ。何も書けない日は **「言葉にならない 😶」を選ぶ** で十分です。"
-        )
-
-        with st.form("nonverbal_memo_form", clear_on_submit=True):
-            _markers: list[str] = []
-            _cols = st.columns(5)
-            for _i, (_emoji, _label) in enumerate(STATE_MARKERS):
-                with _cols[_i % 5]:
-                    if st.checkbox(
-                        f"{_emoji} {_label}",
-                        key=f"nv_{_label}",
-                    ):
-                        _markers.append(f"{_emoji} {_label}")
-
-            _content = st.text_area(
-                "もし言葉になれば（任意・完全に空欄でも OK）",
-                placeholder=(
-                    "例: なんとなくしんどい / 朝起きるのがつらい / "
-                    "誰にも言えないこと… 書けなければそのままスキップ"
-                ),
-                height=100,
-            )
-
-            _submit_nv = st.form_submit_button(
-                "💾 記録する", use_container_width=True,
-            )
-            if _submit_nv:
-                if not _markers and not _content.strip():
-                    st.warning("絵文字を 1 つ選ぶか、何か書いてみてください")
-                else:
-                    try:
-                        save_nonverbal_memo(
-                            state_markers=_markers,
-                            content=_content,
-                            user_id=CURRENT_USER_ID,
-                        )
-                        st.success("記録しました")
-                    except Exception as _e:
-                        st.warning(f"保存に失敗：{_e}")
-
-        # 履歴表示
-        st.divider()
-        st.markdown("#### 📚 これまでのメモ")
-        try:
-            _df_nv = load_nonverbal_memos(user_id=CURRENT_USER_ID, limit=30)
-            if _df_nv.empty:
-                st.caption("まだメモはありません。書けない日の記録としてどうぞ。")
-            else:
-                st.caption(
-                    "**自分の言葉と絵文字**が並びます。"
-                    "後から見返すと、自分の状態の変化が見えることがあります。"
-                )
-                for _, _row in _df_nv.iterrows():
-                    try:
-                        _dt = pd.to_datetime(_row["created_at"])
-                        _dt_str = _dt.strftime("%m/%d %H:%M")
-                    except Exception:
-                        _dt_str = str(_row["created_at"])
-                    try:
-                        _markers_list = json.loads(_row["state_markers"] or "[]")
-                    except Exception:
-                        _markers_list = []
-                    _markers_str = " ".join(_markers_list) if _markers_list else ""
-                    _title = f"📝 {_dt_str}  {_markers_str}".strip()
-                    with st.expander(_title, expanded=False):
-                        if _row.get("content"):
-                            st.markdown(_row["content"])
-                        else:
-                            st.caption("（自由記述なし）")
-                        if st.button(
-                            "🗑️ 削除", key=f"del_nv_{_row['id']}",
-                        ):
-                            try:
-                                delete_nonverbal_memo(
-                                    int(_row["id"]),
-                                    user_id=CURRENT_USER_ID,
-                                )
-                                st.rerun()
-                            except Exception as _e:
-                                st.warning(f"削除失敗：{_e}")
-        except Exception as _e:
-            st.caption(f"履歴の読み込みでエラー：{_e}")
 
 
 elif view == "📊 傾向を見る":
