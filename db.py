@@ -116,3 +116,38 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL
             )
         """))
+
+        # cbt_stress_sources（Phase 1: 仕事ストレス源チェックリスト）
+        # 何にしんどさを感じているか言語化する第一歩。
+        # sources はチェック済み項目を JSON 配列で保存（自由度を保ちつつ集計可能）。
+        conn.execute(text(f"""
+            CREATE TABLE IF NOT EXISTS cbt_stress_sources (
+                id {pk_id},
+                user_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                sources TEXT,
+                free_note TEXT
+            )
+        """))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_cbt_stress_user "
+            "ON cbt_stress_sources(user_id, created_at)"
+        ))
+
+        # cbt_nonverbal_memos（Phase 1: 「言葉にできないこと」専用メモ）
+        # 書ける前提の UI が罠になる場合のフォールバック。
+        # state_marker は絵文字や 1 文字シンボルで「今の状態」を選ぶ（任意）。
+        # content は自由記述（任意・空でも OK）。
+        conn.execute(text(f"""
+            CREATE TABLE IF NOT EXISTS cbt_nonverbal_memos (
+                id {pk_id},
+                user_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                state_markers TEXT,
+                content TEXT
+            )
+        """))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_cbt_nonverbal_user "
+            "ON cbt_nonverbal_memos(user_id, created_at)"
+        ))
