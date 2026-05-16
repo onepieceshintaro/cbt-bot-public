@@ -557,12 +557,29 @@ if view == "💬 対話":
 
             with st.chat_message("assistant"):
                 with st.spinner("..."):
-                    # 危機検知：キーワード + LLMスコアリングの二層チェック
+                    # 危機検知：3 モード判定（normal / warning / critical）
+                    # キーワード ＋ LLM の二段、緊急窓口モードは AND 設計
+                    from crisis_detection import detect_mode
+                    _mode_result = detect_mode(
+                        prompt, client=anthropic_client, use_llm=True,
+                    )
+                    _mode = _mode_result["mode"]
+                    # 既存の cbt_risk_scores テーブルにも記録（後方互換）
                     risk_result = assess_risk(prompt)
                     save_risk_score(prompt, risk_result)
 
-                    if risk_result["triggered"]:
-                        raw_reply = CRISIS_RESPONSE
+                    if _mode == "critical":
+                        # 緊急窓口モード：対話完全停止・UI 描画
+                        from crisis_ui import render_critical_ui
+                        render_critical_ui()
+                        st.stop()
+                    elif _mode == "warning":
+                        # 対話を控えるモード：固定文言＋窓口提示・解除導線あり
+                        from crisis_ui import render_warning_ui
+                        render_warning_ui(
+                            on_resume_key="cbt_warning_resume",
+                        )
+                        st.stop()
                     else:
                         raw_reply = chat(
                             st.session_state.messages,
